@@ -1,9 +1,10 @@
 ﻿using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
+using System.Linq;
 
 /// <summary>
-/// 주사위 족보 분석 및 특수 주사위 + 유물 효과 처리
+/// 주사위 족보 분석 및 점수 계산
+/// 공식: [(주사위1 * 배율) + ... + (주사위5 * 배율)] * 족보배율
 /// </summary>
 public class DiceLogic : MonoBehaviour
 {
@@ -25,9 +26,9 @@ public class DiceLogic : MonoBehaviour
     private Dictionary<HandType, string> handNames = new Dictionary<HandType, string>
     {
         { HandType.HighCard, "노 페어" }, { HandType.OnePair, "원 페어" }, { HandType.TwoPair, "투 페어" },
-        { HandType.ThreeOfAKind, "쓰리 카드 (GLITCH!)" }, { HandType.Straight, "스트레이트" },
-        { HandType.FullHouse, "풀 하우스 (GLITCH!)" }, { HandType.FourOfAKind, "포 카드 (GLITCH!)" },
-        { HandType.FiveOfAKind, "파이브 카드 (GLITCH!)" }
+        { HandType.ThreeOfAKind, "쓰리 카드" }, { HandType.Straight, "스트레이트" },
+        { HandType.FullHouse, "풀 하우스" }, { HandType.FourOfAKind, "포 카드" },
+        { HandType.FiveOfAKind, "파이브 카드" }
     };
 
     // ============================================
@@ -37,15 +38,14 @@ public class DiceLogic : MonoBehaviour
     {
         if (dice == null || dice.Count == 0) return (HandType.HighCard, "없음", 0, false);
 
-        // ★ [신규] 1. 쌍둥이의 축복 (첫 롤 강제 조작)
-        // 라운드 첫 리롤이고 아이템이 있다면 주사위 값을 강제로 투 페어로 바꿈
+        // 1. 쌍둥이의 축복
         if (GameData.Instance != null && GameData.Instance.isFirstRoll)
         {
             ApplyTwinBlessing(dice);
-            GameData.Instance.isFirstRoll = false; // 한 번 적용 후 해제
+            GameData.Instance.isFirstRoll = false;
         }
 
-        // 1. 초기화
+        // 2. 초기화 (배율은 1.0 = 100% 부터 시작)
         foreach (var die in dice)
         {
             die.finalScore = die.value;
@@ -53,47 +53,60 @@ public class DiceLogic : MonoBehaviour
             die.finalMult = 1.0f;
         }
 
-        // 2. 특수 주사위 효과
+        // 3. 특수 주사위 효과 (배율 합연산)
         ApplySpecialDiceEffects(dice);
 
-        // 3. ★ 유물 효과 적용 (영혼 수집가, 무거운 손 등)
+        // 4. 유물 효과 (배율 합연산)
         ApplyGlobalUpgrades(dice);
 
-        // 4. 족보 판별
+        // 5. 족보 판별
         Dictionary<int, int> counts = CountDiceValues(dice);
         HandType hand = DetermineHandType(dice, counts);
 
-        // ★ [신규] 2. 데자뷰 (연속 족보 체크)
+        // 6. 데자뷰 체크
         CheckDejaVuEffect(hand);
 
-        // 5. 점수 계산
-        float totalDiceScore = 0;
+        // ==========================================================
+        // ★ [핵심] 요청하신 계산식 적용
+        // 식: [(주사위1 * 배율) + (주사위2 * 배율) + ...] * 족보배율
+        // ==========================================================
+
+        long sumOfDice = 0;
+
         foreach (var die in dice)
         {
-            float score = (die.value + die.bonusScore) * die.finalMult;
-            if (score < 0) score = 0;
-            totalDiceScore += score;
+            // (1) 주사위 값 (기본값 + 보너스값)
+            float diceValue = Mathf.Max(0, die.value + die.bonusScore);
+
+            // (2) 개별 배율 적용
+            float diceTotal = diceValue * die.finalMult;
+
+            // (3) 총합에 더하기
+            sumOfDice += (long)diceTotal;
         }
 
+        // (4) 족보 배율 적용
         float handMult = handMultipliers[hand];
-        float globalMult = 1.0f;
-        if (GameData.Instance != null) globalMult = GameData.Instance.feverMultiplier;
 
-        int finalScore = Mathf.RoundToInt(totalDiceScore * handMult * globalMult);
+        // (5) 글로벌 배율(피버 등) 적용
+        float globalMult = (GameData.Instance != null) ? GameData.Instance.feverMultiplier : 1.0f;
 
-        bool isGlitch = (hand == HandType.ThreeOfAKind || hand == HandType.FullHouse ||
-                         hand == HandType.FourOfAKind || hand == HandType.FiveOfAKind);
+        // 최종 계산
+        double finalCalc = sumOfDice * handMult * globalMult;
+
+        // 오버플로우 방지 (21억 초과 시 최대값 고정)
+        int finalScore = (finalCalc > int.MaxValue) ? int.MaxValue : (int)finalCalc;
+        bool isGlitch = (hand >= HandType.ThreeOfAKind);
 
         return (hand, handNames[hand], finalScore, isGlitch);
     }
 
     // ============================================
-    // ★ 유물 효과 적용
+    // ★ 유물 효과 (점수 폭발 방지를 위해 += 사용)
     // ============================================
     private void ApplyGlobalUpgrades(List<DiceData> diceList)
     {
         if (GameData.Instance == null) return;
-
         List<Item> activeItems = GameData.Instance.GetAllActiveUpgrades();
 
         foreach (var item in activeItems)
@@ -105,321 +118,292 @@ public class DiceLogic : MonoBehaviour
                     break;
 
                 case "Blackjack":
-                    int sum = 0;
-                    foreach (var d in diceList) sum += d.value;
-                    if (sum == 21)
-                    {
-                        foreach (var d in diceList) d.finalMult *= 7.0f;
-                        Debug.Log($"♠️ [Blackjack] 21 달성! 점수 7배!");
-                    }
+                    // x7배 -> +600% (+6.0)
+                    if (diceList.Sum(d => d.value) == 21) foreach (var d in diceList) d.finalMult += 6.0f;
                     break;
 
                 case "Devil Dice":
-                    foreach (var d in diceList) d.finalMult *= 5.0f;
+                    // x5배 -> +400% (+4.0)
+                    foreach (var d in diceList) d.finalMult += 4.0f;
                     break;
 
-                case "Vampire":
-                    int lostHands = 3 - GameData.Instance.handsLeft;
-                    if (lostHands > 0)
-                    {
-                        foreach (var d in diceList) d.bonusScore += lostHands;
-                    }
+                case "Heavy Hand":
+                    // x2배 -> +100% (+1.0)
+                    foreach (var d in diceList) d.finalMult += 1.0f;
                     break;
 
                 case "Sniper Scope":
                     Dictionary<int, int> counts = CountDiceValues(diceList);
-                    HandType hand = DetermineHandType(diceList, counts);
-                    if (hand == HandType.OnePair)
-                    {
-                        foreach (var d in diceList) d.finalMult *= 2.0f;
-                    }
+                    if (DetermineHandType(diceList, counts) == HandType.OnePair) foreach (var d in diceList) d.finalMult += 1.0f;
                     break;
 
                 case "Heavy Weight":
-                    foreach (var d in diceList)
-                    {
-                        if (d.value >= 4) d.bonusScore += 3;
-                    }
+                    foreach (var d in diceList) if (d.value >= 4) d.bonusScore += 3;
                     break;
 
                 case "Odd Eye":
-                    bool isAllOdd = true;
-                    foreach (var d in diceList) if (d.value % 2 == 0) { isAllOdd = false; break; }
-                    if (isAllOdd && diceList.Count > 0)
-                    {
-                        foreach (var d in diceList) d.finalMult *= 3.0f;
-                    }
+                    // x3배 -> +200% (+2.0)
+                    if (diceList.All(d => d.value % 2 != 0) && diceList.Count > 0) foreach (var d in diceList) d.finalMult += 2.0f;
                     break;
 
                 case "Golden Scale":
                     if (GameData.Instance.chips > 0)
                     {
-                        int stacks = GameData.Instance.chips / 10;
-                        float scaleBonus = stacks * 0.1f;
-                        if (scaleBonus > 0)
-                        {
-                            foreach (var d in diceList) d.finalMult *= (1.0f + scaleBonus);
-                        }
+                        float bonus = (GameData.Instance.chips / 10) * 0.2f;
+                        foreach (var d in diceList) d.finalMult += bonus;
                     }
                     break;
 
                 case "Artisan Whetstone":
-                    foreach (var d in diceList)
-                    {
-                        if (d.diceType == "Normal") d.finalMult *= 2.0f;
-                    }
+                    foreach (var d in diceList) if (d.diceType == "Normal") d.finalMult += 1.0f;
                     break;
 
-                // ▼ [신규] 영혼 수집가 (삭제된 유물 수만큼 배율 중첩)
                 case "Soul Collector":
                     if (GameData.Instance.soulCollectorStack > 0)
                     {
-                        float bonus = Mathf.Pow(2, GameData.Instance.soulCollectorStack);
-                        foreach (var d in diceList) d.finalMult *= bonus;
-                        Debug.Log($"👻 [Soul Collector] 영혼 {GameData.Instance.soulCollectorStack}개 -> 배율 x{bonus}");
+                        float bonus = GameData.Instance.soulCollectorStack * 0.5f;
+                        foreach (var d in diceList) d.finalMult += bonus;
                     }
-                    break;
-
-                // ▼ [신규] 무거운 손 (최종 점수 2배)
-                case "Heavy Hand":
-                    foreach (var d in diceList) d.finalMult *= 2.0f;
-                    Debug.Log($"🦾 [Heavy Hand] 점수 2배 적용 (리롤 비용 증가)");
                     break;
             }
         }
     }
 
     // ============================================
-    // ★ 신규 유물 특수 로직 (조작 및 상태 체크)
+    // ★ 특수 주사위 효과 (인플레이션 방지 적용)
     // ============================================
-
-    // 1. 쌍둥이의 축복: 강제로 투 페어 만들기
-    private void ApplyTwinBlessing(List<DiceData> dice)
+    private void ApplySpecialDiceEffects(List<DiceData> dice)
     {
-        if (GameData.Instance == null) return;
-
-        bool hasItem = false;
-        foreach (var item in GameData.Instance.GetAllActiveUpgrades())
-            if (item.itemName == "Twin's Blessing") { hasItem = true; break; }
-
-        if (hasItem && dice.Count >= 5)
+        // [Phase 1] 값 변경
+        foreach (var d in dice)
         {
-            // 강제로 값을 변경 (예: 2, 2, 4, 4, 6)
-            dice[0].value = 2;
-            dice[1].value = 2;
-            dice[2].value = 4;
-            dice[3].value = 4;
-            // 나머지는 랜덤성 유지를 위해 놔두거나 확정값 부여 가능 (여기선 5번째만 6으로)
-            if (dice.Count > 4) dice[4].value = 6;
-
-            Debug.Log("👯 [Twin's Blessing] 첫 리롤! 투 페어로 값이 조작되었습니다.");
-        }
-    }
-
-    // 2. 데자뷰: 연속 족보 체크
-    private void CheckDejaVuEffect(HandType currentHand)
-    {
-        if (GameData.Instance == null) return;
-
-        bool hasItem = false;
-        foreach (var item in GameData.Instance.GetAllActiveUpgrades())
-            if (item.itemName == "Deja Vu") { hasItem = true; break; }
-
-        if (hasItem)
-        {
-            // 노 페어(HighCard)는 보통 제외하지만, 기획에 따라 포함 가능 (여기선 포함)
-            if (currentHand == GameData.Instance.lastHandType)
+            Vector2Int pos = GetPos(d.slotIndex);
+            if (d.diceType == "Chameleon Dice")
             {
-                GameData.Instance.handStreak++;
-                if (GameData.Instance.handStreak >= 1) // 2회 연속(0->1)이면 발동
+                int maxVal = 0;
+                List<Vector2Int> offsets = new List<Vector2Int> { new Vector2Int(-1, 1), new Vector2Int(0, 1), new Vector2Int(-1, 0) };
+                foreach (var off in offsets)
                 {
-                    GameData.Instance.rerollsLeft++;
-                    Debug.Log($"✨ [Deja Vu] {currentHand} 연속 등장! 리롤 횟수 +1 회복!");
-                    // 연속 보상을 한 번만 줄지, 계속 줄지에 따라 초기화 여부 결정
-                    GameData.Instance.handStreak = 0;
+                    DiceData t = GetDieAt(dice, pos + off);
+                    if (t != null && t.value > maxVal) maxVal = t.value;
+                }
+                if (maxVal > 0) d.value = maxVal;
+            }
+            else if (d.diceType == "Ancient Dice")
+            {
+                if (d.roundsHeld >= 5)
+                {
+                    d.value = 6;
+                    d.finalMult += 4.0f; // 진화 시 +400%
                 }
             }
-            else
-            {
-                GameData.Instance.handStreak = 0;
-            }
-
-            // 현재 족보를 마지막 족보로 저장
-            GameData.Instance.lastHandType = currentHand;
-        }
-    }
-
-    // ============================================
-    // ★ 라운드 종료 시 효과 처리 (이자, 도박, 환급 등)
-    // ============================================
-    public void OnRoundEnd()
-    {
-        if (GameData.Instance == null) return;
-
-        // 1. 블랙 카드 이자
-        if (GameData.Instance.hasCreditCard && GameData.Instance.chips < 0)
-        {
-            int debt = Mathf.Abs(GameData.Instance.chips);
-            int interest = Mathf.Clamp(debt / 10 + 1, 1, 4);
-            GameData.Instance.chips -= interest;
-            Debug.Log($"💳 [Black Card] 빚 이자 -{interest}C");
         }
 
-        // 2. 유물 효과 처리
-        foreach (var item in GameData.Instance.GetAllActiveUpgrades())
+        // [Phase 2] 버프/디버프
+        foreach (var d in dice)
         {
-            switch (item.itemName)
+            Vector2Int pos = GetPos(d.slotIndex);
+            int lostLife = (GameData.Instance != null) ? Mathf.Max(0, 3 - GameData.Instance.handsLeft) : 0;
+
+            switch (d.diceType)
             {
-                // 황금 돼지 저금통
-                case "Golden Piggy Bank":
-                    if (GameData.Instance.chips > 0)
-                    {
-                        int pigInterest = Mathf.Min(GameData.Instance.chips / 10, 10);
-                        if (pigInterest > 0)
-                        {
-                            GameData.Instance.AddChips(pigInterest);
-                            Debug.Log($"🐷 [Piggy Bank] 이자 +{pigInterest}C");
-                        }
-                    }
+                case "Time Dice":
+                    d.finalMult += (d.roundsHeld * 0.5f);
                     break;
-
-                // 운명의 주사위 (도박)
-                case "Fate Die":
-                    int roll = Random.Range(1, 7);
-                    int profit = 0;
-                    if (roll == 1) profit = -2;
-                    else if (roll == 2) profit = -1;
-                    else if (roll == 3) profit = 0;
-                    else if (roll == 4) profit = 1;
-                    else if (roll == 5) profit = 2;
-                    else if (roll == 6) profit = 3;
-
-                    if (profit != 0)
-                    {
-                        GameData.Instance.AddChips(profit);
-                        Debug.Log($"🎲 [Fate Die] 결과 {roll} -> {profit}C");
-                    }
+                case "Ice Dice":
+                    ApplyToOffsets(dice, pos, new[] { new Vector2Int(0, 1), new Vector2Int(0, -1), new Vector2Int(1, 0), new Vector2Int(-1, 0) }, target => target.bonusScore += 5);
+                    ApplyToOffsets(dice, pos, new[] { new Vector2Int(1, 1), new Vector2Int(1, -1), new Vector2Int(-1, 1), new Vector2Int(-1, -1) }, target => target.bonusScore -= 4);
                     break;
-
-                // 친환경 재활용통
-                case "Eco Bin":
-                    int refund = GameData.Instance.rerollsLeft;
-                    if (refund > 0)
-                    {
-                        GameData.Instance.AddChips(refund);
-                        Debug.Log($"♻️ [Eco Bin] 리롤 환급 +{refund}C");
-                    }
+                case "TimeAttack(R)":
+                    ApplyCross(dice, pos, target => target.bonusScore += (lostLife * 2));
+                    break;
+                case "TimeAttack(S)":
+                    d.finalMult += (lostLife * 1.5f);
+                    break;
+                case "Buff Dice":
+                    ApplyCross(dice, pos, target => { if (target.bonusScore > 0) target.bonusScore *= 3; });
+                    break;
+                case "Spring Dice":
+                    ApplyGlobal(dice, pos, (target, isInside) => {
+                        if (isInside) target.finalMult += 1.0f;
+                        else target.finalMult -= 0.5f;
+                    });
+                    break;
+                case "Laser Dice":
+                    int count = dice.Count(t => { Vector2Int p = GetPos(t.slotIndex); return (p != pos) && (p.x == pos.x || p.y == pos.y); });
+                    d.bonusScore += count * 3;
+                    break;
+                case "Offer Dice":
+                    d.finalMult = 0f;
+                    Apply3x3(dice, pos, target => target.finalMult += 2.0f);
+                    break;
+                case "Glass Dice":
+                    if (d.value <= 2) d.finalMult = 0f;
+                    else d.finalMult += 1.0f;
+                    break;
+                case "Stone Dice":
+                    ApplyCross(dice, pos, target => { target.finalMult = 0f; target.bonusScore = 0; });
                     break;
             }
         }
-    }
 
-    // ============================================
-    // 기타 함수들 (기존 유지)
-    // ============================================
-    private void ApplySpecialDiceEffects(List<DiceData> diceList)
-    {
-        foreach (var sourceDie in diceList)
+        // [Phase 3] 변조 및 특수 상호작용
+        foreach (var d in dice)
         {
-            Vector2Int pos = GetPos(sourceDie.slotIndex);
-            switch (sourceDie.diceType)
+            Vector2Int pos = GetPos(d.slotIndex);
+            if (d.diceType == "Mirror Dice")
             {
-                case "TimeAttack":
-                    int lifeBonus = (GameData.Instance != null) ? (3 - GameData.Instance.handsLeft) * 2 : 0;
-                    ApplyBuffToRange(diceList, pos, "Cross", lifeBonus, 1.0f);
-                    break;
-                case "Laser":
-                    int count = CountDiceInRowCol(diceList, pos);
-                    sourceDie.bonusScore += count * 3;
-                    break;
-                case "Offer":
-                    sourceDie.finalMult = 0f;
-                    ApplyBuffToRange(diceList, pos, "3x3", 0, 3.0f);
-                    break;
-                case "Ice": ApplyIceEffect(diceList, pos); break;
-                case "Glass":
-                    if (sourceDie.value <= 2) sourceDie.finalMult = 0f;
-                    else sourceDie.finalMult *= 2.0f;
-                    break;
+                float maxMult = 1.0f;
+                ApplyCross(dice, pos, target => { if (target.finalMult > maxMult) maxMult = target.finalMult; });
+                d.finalMult = maxMult;
+            }
+            else if (d.diceType == "Reflection Dice")
+            {
+                ApplyToOffsets(dice, pos, new[] { new Vector2Int(-1, 0), new Vector2Int(1, 0) }, target => {
+                    target.bonusScore *= -1;
+                    float currentBonus = target.finalMult - 1.0f;
+                    target.finalMult = 1.0f + (currentBonus * -1.0f);
+                });
+            }
+            else if (d.diceType == "Absorb Dice")
+            {
+                Apply3x3(dice, pos, target => {
+                    if (target.bonusScore > 0) { d.bonusScore += target.bonusScore; target.bonusScore = 0; }
+                });
+            }
+            else if (d.diceType == "Rubber Dice")
+            {
+                Apply3x3(dice, pos, target => {
+                    target.bonusScore /= 2;
+                    target.finalMult = 1.0f + (target.finalMult - 1.0f) * 0.5f;
+                });
             }
         }
-        foreach (var sourceDie in diceList)
+
+        // [Phase 4] 강철 주사위 (디버프 제거)
+        foreach (var d in dice)
         {
-            if (sourceDie.diceType == "Rubber") ApplyRubberEffect(diceList, GetPos(sourceDie.slotIndex));
-        }
-    }
-
-    private Vector2Int GetPos(int index) => new Vector2Int(index % GRID_WIDTH, index / GRID_WIDTH);
-
-    private void ApplyBuffToRange(List<DiceData> allDice, Vector2Int center, string shape, int scoreAdd, float multMult)
-    {
-        foreach (var target in allDice)
-        {
-            Vector2Int tPos = GetPos(target.slotIndex);
-            if (tPos == center) continue;
-            int dx = Mathf.Abs(tPos.x - center.x);
-            int dy = Mathf.Abs(tPos.y - center.y);
-            bool isInRange = (shape == "3x3") ? (dx <= 1 && dy <= 1) : ((dx == 1 && dy == 0) || (dx == 0 && dy == 1));
-
-            if (isInRange) { target.bonusScore += scoreAdd; target.finalMult *= multMult; }
-        }
-    }
-
-    private void ApplyIceEffect(List<DiceData> allDice, Vector2Int center)
-    {
-        foreach (var target in allDice)
-        {
-            Vector2Int tPos = GetPos(target.slotIndex);
-            if (tPos == center) continue;
-            int dx = Mathf.Abs(tPos.x - center.x);
-            int dy = Mathf.Abs(tPos.y - center.y);
-            if (dx > 1 || dy > 1) continue;
-            if (dx + dy == 1) target.bonusScore += 5; // 십자가
-            else if (dx == 1 && dy == 1) target.bonusScore -= 4; // 대각선
-        }
-    }
-
-    private void ApplyRubberEffect(List<DiceData> allDice, Vector2Int center)
-    {
-        foreach (var target in allDice)
-        {
-            Vector2Int tPos = GetPos(target.slotIndex);
-            if (tPos == center) continue;
-            if (Mathf.Abs(tPos.x - center.x) <= 1 && Mathf.Abs(tPos.y - center.y) <= 1)
+            if (d.diceType == "Steel Dice")
             {
-                target.bonusScore /= 2;
-                if (target.finalMult > 1.0f) target.finalMult = 1.0f + (target.finalMult - 1.0f) * 0.5f;
-                else if (target.finalMult < 1.0f) target.finalMult = 1.0f - (1.0f - target.finalMult) * 0.5f;
+                if (d.bonusScore < 0) d.bonusScore = 0;
+                if (d.finalMult < 1.0f) d.finalMult = 1.0f;
             }
         }
     }
 
-    private int CountDiceInRowCol(List<DiceData> allDice, Vector2Int center)
-    {
-        int count = 0;
-        foreach (var d in allDice)
-        {
-            Vector2Int p = GetPos(d.slotIndex);
-            if (p == center) continue;
-            if (p.x == center.x || p.y == center.y) count++;
-        }
-        return count;
-    }
-
+    // ============================================
+    // GameManager 호환용 (오류 방지)
+    // ============================================
+    public float CheckPositionBonus(List<DiceData> dice) { return 1.0f; }
+    public float CheckSpecialDiceBonus(List<DiceData> dice) { return 1.0f; }
     public int CalculateFinalGlitchScore(int storedScore, int currentHandScore, int comboCount)
     {
         return Mathf.RoundToInt((storedScore + currentHandScore) * Mathf.Pow(2, comboCount));
     }
 
-    public float CheckPositionBonus(List<DiceData> dice)
+    // ============================================
+    // 헬퍼 함수
+    // ============================================
+    private Vector2Int GetPos(int idx) => new Vector2Int(idx % GRID_WIDTH, idx / GRID_WIDTH);
+    private DiceData GetDieAt(List<DiceData> list, Vector2Int p) => list.FirstOrDefault(d => GetPos(d.slotIndex) == p);
+
+    private void ApplyCross(List<DiceData> list, Vector2Int center, System.Action<DiceData> action)
     {
-        if (dice.Count < 3) return 1f;
-        HashSet<int> rows = new HashSet<int>();
-        foreach (var die in dice) rows.Add(die.slotIndex / 5);
-        return (rows.Count == 1) ? 1.5f : 1f;
+        ApplyToOffsets(list, center, new[] { new Vector2Int(0, 1), new Vector2Int(0, -1), new Vector2Int(1, 0), new Vector2Int(-1, 0) }, action);
     }
 
-    public float CheckSpecialDiceBonus(List<DiceData> dice) => 1.0f;
+    private void Apply3x3(List<DiceData> list, Vector2Int center, System.Action<DiceData> action)
+    {
+        foreach (var t in list)
+        {
+            Vector2Int p = GetPos(t.slotIndex);
+            if (p == center) continue;
+            if (Mathf.Abs(p.x - center.x) <= 1 && Mathf.Abs(p.y - center.y) <= 1) action(t);
+        }
+    }
+
+    private void ApplyGlobal(List<DiceData> list, Vector2Int center, System.Action<DiceData, bool> action)
+    {
+        foreach (var t in list)
+        {
+            Vector2Int p = GetPos(t.slotIndex);
+            if (p == center) continue;
+            bool isInside = (Mathf.Abs(p.x - center.x) <= 1 && Mathf.Abs(p.y - center.y) <= 1);
+            action(t, isInside);
+        }
+    }
+
+    private void ApplyToOffsets(List<DiceData> list, Vector2Int center, Vector2Int[] offsets, System.Action<DiceData> action)
+    {
+        foreach (var off in offsets)
+        {
+            DiceData t = GetDieAt(list, center + off);
+            if (t != null) action(t);
+        }
+    }
+
+    // ============================================
+    // 라운드 종료 및 기타
+    // ============================================
+    public void OnRoundEnd()
+    {
+        if (GameData.Instance == null) return;
+        if (GameData.Instance.hasCreditCard && GameData.Instance.chips < 0)
+        {
+            int interest = Mathf.Clamp(Mathf.Abs(GameData.Instance.chips) / 10 + 1, 1, 4);
+            GameData.Instance.chips -= interest;
+        }
+        if (GameData.Instance.isStageRewardBlocked) return;
+
+        foreach (var item in GameData.Instance.GetAllActiveUpgrades())
+        {
+            switch (item.itemName)
+            {
+                case "Golden Piggy Bank":
+                    if (GameData.Instance.chips > 0) GameData.Instance.AddChips(Mathf.Min(GameData.Instance.chips / 10, 10));
+                    break;
+                case "Fate Die":
+                    int r = Random.Range(1, 101);
+                    int profit = (r < 30) ? -10 : (r < 60) ? 5 : (r < 90) ? 15 : 30;
+                    GameData.Instance.AddChips(profit);
+                    break;
+                case "Eco Bin":
+                    bool hasTime = GameData.Instance.GetAllActiveUpgrades().Exists(i => i.itemName == "Time Capsule");
+                    if (!hasTime && GameData.Instance.rerollsLeft > 0) GameData.Instance.AddChips(GameData.Instance.rerollsLeft);
+                    break;
+                case "Payback":
+                    bool hasTime2 = GameData.Instance.GetAllActiveUpgrades().Exists(i => i.itemName == "Time Capsule");
+                    if (!hasTime2 && GameData.Instance.rerollsLeft > 0) GameData.Instance.AddChips(GameData.Instance.rerollsLeft * 2);
+                    break;
+            }
+        }
+    }
+
+    private void ApplyTwinBlessing(List<DiceData> dice)
+    {
+        bool hasItem = GameData.Instance.GetAllActiveUpgrades().Exists(i => i.itemName == "Twin's Blessing");
+        if (hasItem && dice.Count >= 5 && !dice.Any(d => d.isSelected))
+        {
+            dice[0].value = 2; dice[1].value = 2; dice[2].value = 4; dice[3].value = 4; dice[4].value = 6;
+        }
+    }
+
+    private void CheckDejaVuEffect(HandType currentHand)
+    {
+        if (!GameData.Instance.GetAllActiveUpgrades().Exists(i => i.itemName == "Deja Vu")) return;
+
+        if (currentHand != HandType.HighCard && currentHand == GameData.Instance.lastHandType)
+        {
+            GameData.Instance.handStreak++;
+            if (GameData.Instance.handStreak >= 1)
+            {
+                if (GameData.Instance.rerollsLeft < GameData.MAX_REROLLS) GameData.Instance.rerollsLeft++;
+                GameData.Instance.handStreak = 0;
+            }
+        }
+        else GameData.Instance.handStreak = 0;
+        GameData.Instance.lastHandType = currentHand;
+    }
 
     private Dictionary<int, int> CountDiceValues(List<DiceData> dice)
     {
