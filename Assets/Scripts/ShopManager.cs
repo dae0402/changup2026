@@ -25,18 +25,6 @@ public class ShopManager : MonoBehaviour
     public Button confirmYesButton;
     public Button confirmNoButton;
 
-    [Header("랜덤 뽑기 시스템")]
-    public Button randomPackButton;
-    public int randomPackCost = 0; // 랜덤 뽑기 비용 0원
-    public GameObject selectionPanel;
-    public Transform selectionContainer;
-    public GameObject selectionCardPrefab;
-
-    [Header("★ 인벤토리 UI 연결")]
-    public Transform randomSlotContainer;
-    public Transform artifactSlotContainer;
-    public GameObject upgradeIconPrefab;
-
     [Header("★ 아이템 설명 툴팁 UI")]
     public GameObject tooltipPanel;
     public TextMeshProUGUI tooltipName;
@@ -47,81 +35,58 @@ public class ShopManager : MonoBehaviour
     private Item pendingPurchase;
 
     // ============================================
-    // 아이템 데이터
+    // ★ 아이템 데이터 (신규 10종만 유지)
     // ============================================
-
-    // 1. 상점 판매용 유물 목록
-    private List<Item> artifactItems = new List<Item>
-    {
-        // --- 기존 유물 ---
-        new Item("Magic Dice", "MagicDice", "라운드 시작 시 첫 주사위는 6 고정", 0, ItemType.Artifact),
-        new Item("Payback", "PaybackIcon", "라운드 종료 시 남은 리롤 x 2칩 획득", 0, ItemType.Artifact),
-        new Item("Lucky Coin", "LuckyIcon", "리롤 시 10% 확률로 횟수 소모 안 함", 0, ItemType.Artifact),
-        new Item("Blackjack", "BlackjackIcon", "주사위 합이 21이면 점수 x7", 0, ItemType.Artifact),
-        new Item("Time Capsule", "TimeIcon", "남은 리롤 이월 (최대 10개)", 0, ItemType.Artifact),
-        new Item("Devil Dice", "DevilIcon", "점수 x5, 인벤토리 잠금 (판매/확장 불가)", 0, ItemType.Artifact),
-        new Item("Sniper Scope", "ScopeIcon", "원 페어일 때 배율 2배 추가 증가", 0, ItemType.Artifact),
-        new Item("Heavy Weight", "WeightIcon", "눈금 4, 5, 6 주사위는 점수 +3", 0, ItemType.Artifact),
-        new Item("Odd Eye", "EyeIcon", "모든 주사위가 홀수(1,3,5)면 점수 x3", 0, ItemType.Artifact),
-
-        // --- 특수 아이템 ---
-        new Item("Greed's Bargain", "GreedIcon", "즉시 +30칩 / 이후 스테이지 보상 0", 0, ItemType.Artifact),
-        new Item("Golden Scale", "ScaleIcon", "보유 칩 10개당 점수 +20%", 0, ItemType.Artifact),
-        new Item("Coin Sack", "CoinIcon", "구매 시 10칩 획득 (소모성)", 0, ItemType.Consumable),
-        new Item("Chaos Fund", "ChaosIcon", "+50칩 / 인벤토리 랜덤 변경", 0, ItemType.Consumable),
-        new Item("Pandora's Box", "BoxIcon", "인벤토리 +2칸 / 인벤토리 랜덤 변경", 0, ItemType.Consumable),
-        new Item("Black Card", "CardIcon", "-20칩까지 외상 가능 (매턴 이자 발생)", 0, ItemType.Artifact),
-
-        // --- 이전 추가된 유물 ---
-        new Item("Bargain Flyer", "FlyerIcon", "상점 리롤 비용 -1 (최소 1)", 0, ItemType.Artifact),
-        new Item("Artisan Whetstone", "WhetstoneIcon", "노말 등급 주사위 배율 2배", 0, ItemType.Artifact),
-        new Item("Golden Piggy Bank", "BankIcon", "라운드 종료 시 10칩당 +1칩 (최대 10)", 0, ItemType.Artifact),
-        new Item("Fate Die", "FateIcon", "라운드 종료 시 주사위 도박 (-10 ~ +30)", 0, ItemType.Artifact),
-        new Item("Eco Bin", "RecycleIcon", "남은 리롤 횟수만큼 추가 칩 획득", 0, ItemType.Artifact),
-
-        // --- ★ [신규 추가] 요청하신 4가지 유물 ---
-        new Item("Soul Collector", "SoulIcon", "유물 삭제 시마다 배율 +0.5배 중첩", 0, ItemType.Artifact),
-        new Item("Heavy Hand", "HandIcon", "최종 점수 2배 / 리롤 비용 +1 증가", 0, ItemType.Artifact),
-        new Item("Deja Vu", "DejaIcon", "같은 족보 2연속 시 리롤 +1 회복", 0, ItemType.Artifact),
-        new Item("Twin's Blessing", "TwinIcon", "라운드 첫 리롤은 무조건 투 페어 (홀드 없을 시)", 0, ItemType.Artifact)
-    };
-
-    // 2. 랜덤 뽑기 전용 풀 (특수 주사위 17종 포함)
-    private List<Item> randomPool = new List<Item>
-    {
-        // ★ [신규] 특수 주사위 17종 추가
-        new Item("Time Dice", "⏳", "보유 라운드만큼 배율 증가", 0, ItemType.Dice),
-        new Item("Ice Dice", "❄️", "십자가 +5 / 대각선 -4", 0, ItemType.Dice),
-        new Item("Rubber Dice", "🎈", "주변 효과 절반(1/2) 감소", 0, ItemType.Dice),
-        new Item("TimeAttack(R)", "⚔️", "십자가 범위: 잃은 목숨당 +2점", 0, ItemType.Dice),
-        new Item("Buff Dice", "🔰", "십자가 범위: 버프 효과 3배 증폭", 0, ItemType.Dice),
-        new Item("TimeAttack(S)", "⏱️", "자신: 잃은 목숨당 배율 1.5배", 0, ItemType.Dice),
-        new Item("Spring Dice", "🌀", "3x3 내부 2배 / 외부 절반", 0, ItemType.Dice),
-        new Item("Laser Dice", "🔫", "가로/세로 같은 줄 주사위 수 비례 점수", 0, ItemType.Dice),
-        new Item("Mirror Dice", "🪞", "십자가 중 가장 높은 등급(배율) 복사", 0, ItemType.Dice),
-        new Item("Reflection Dice", "🔁", "가로 범위: 버프/디버프 반전", 0, ItemType.Dice),
-        new Item("Steel Dice", "🛡️", "자신: 모든 디버프 무시", 0, ItemType.Dice),
-        new Item("Offer Dice", "🩸", "자신 0점 / 주변 3x3 배율 3배", 0, ItemType.Dice),
-        new Item("Chameleon Dice", "🦎", "ㄱ자 범위 중 가장 큰 수 복사", 0, ItemType.Dice),
-        new Item("Stone Dice", "🪨", "십자가 범위: 돌(무효화) 상태 적용", 0, ItemType.Dice),
-        new Item("Absorb Dice", "🧽", "주변 3x3 버프를 모두 흡수", 0, ItemType.Dice),
-        new Item("Glass Dice", "🍷", "1,2면 0점 / 3~6면 2배", 0, ItemType.Dice),
-        new Item("Ancient Dice", "🗿", "5라운드 후 전설(6/x5)로 진화", 0, ItemType.Dice)
-    };
+    private List<Item> artifactItems = new List<Item>();
 
     void Start()
     {
+        InitializeShopItems(); // 아이템 DB 초기화
+
         if (refreshButton != null) refreshButton.onClick.AddListener(RefreshShop);
         if (confirmYesButton != null) confirmYesButton.onClick.AddListener(ConfirmPurchase);
         if (confirmNoButton != null) confirmNoButton.onClick.AddListener(CancelPurchase);
-        if (randomPackButton != null) randomPackButton.onClick.AddListener(OnRandomPackClicked);
 
         GenerateWeeklyItems();
-        if (confirmPanel != null) confirmPanel.SetActive(false);
-        if (selectionPanel != null) selectionPanel.SetActive(false);
-        if (tooltipPanel != null) tooltipPanel.SetActive(false);
 
-        UpdateAllUpgradeUI();
+        if (confirmPanel != null) confirmPanel.SetActive(false);
+        if (tooltipPanel != null) tooltipPanel.SetActive(false);
+    }
+
+    // ★ [핵심] 신규 아이템 10종 등록
+    void InitializeShopItems()
+    {
+        artifactItems.Clear();
+
+        // 1. Discount Coupon (할인 쿠폰)
+        artifactItems.Add(new Item("Discount Coupon", "CouponIcon", "상점 가격 20% 할인", 5, ItemType.Artifact));
+
+        // 2. Mirror of Rank (계급의 거울) - 구현 완료
+        artifactItems.Add(new Item("Mirror of Rank", "MirrorIcon", "가장 비싼 아이템 효과 복사", 8, ItemType.Artifact));
+
+        // 3. Magic Paint (마법 페인트)
+        artifactItems.Add(new Item("Magic Paint", "PaintIcon", "매 라운드 랜덤 2칸에 +2점 타일 생성", 4, ItemType.Artifact));
+
+        // 4. Chaos Orb (카오스 오브) - 구현 완료
+        artifactItems.Add(new Item("Chaos Orb", "OrbIcon", "매 라운드 효과가 랜덤 변경", 6, ItemType.Artifact));
+
+        // 5. Heavy Shackle (무거운 족쇄)
+        artifactItems.Add(new Item("Heavy Shackle", "ShackleIcon", "점수 x2배 / 리롤 횟수 -1회", 5, ItemType.Artifact));
+
+        // 6. Underdog's Hope (언더독의 희망)
+        artifactItems.Add(new Item("Underdog's Hope", "HopeIcon", "주사위 합 24 이하일 때 점수 x3배", 4, ItemType.Artifact));
+
+        // 7. Devil's Contract (악마의 계약)
+        artifactItems.Add(new Item("Devil's Contract", "ContractIcon", "점수 x5배 / 인벤토리 2칸 잠금", 10, ItemType.Artifact));
+
+        // 8. Blackjack (블랙잭)
+        artifactItems.Add(new Item("Blackjack", "BlackjackIcon", "주사위 합 21일 때 점수 x20배", 7, ItemType.Artifact));
+
+        // 9. Glitch USB (글리치 USB)
+        artifactItems.Add(new Item("Glitch USB", "USBIcon", "스트레이트도 글리치로 인정", 6, ItemType.Artifact));
+
+        // 10. Extra Heart (추가 심장) - 소모성(즉시 적용)
+        artifactItems.Add(new Item("Extra Heart", "HeartIcon", "획득 시 목숨 +1 (즉시 적용)", 5, ItemType.Artifact)); // 타입은 Artifact지만 획득 시 처리 다름
     }
 
     // ★ 게임 재시작 시 호출되는 초기화 함수
@@ -140,31 +105,33 @@ public class ShopManager : MonoBehaviour
         weeklyItems.Clear();
         List<Item> shopPool = new List<Item>();
 
-        // 1. 소모품 재입고 (부활) 로직
-        // 소모품은 매주 다시 살 수 있게 초기화
-        foreach (var item in artifactItems)
-        {
-            if (item.type == ItemType.Consumable) item.isSold = false;
-        }
-
-        // 2. 중복 방지 (이미 가진 유물은 등장하지 않음)
+        // 중복 방지 (이미 가진 유물은 등장하지 않음)
+        // 단, Extra Heart는 여러 번 나올 수 있도록 예외 처리 가능 (여기선 중복 안 됨으로 설정)
         HashSet<string> ownedItems = new HashSet<string>();
-        foreach (var item in GameData.Instance.GetAllActiveUpgrades())
+        if (GameData.Instance != null)
         {
-            ownedItems.Add(item.itemName);
+            foreach (var item in GameData.Instance.GetAllActiveUpgrades())
+            {
+                ownedItems.Add(item.itemName);
+            }
         }
 
-        // 3. 상점에 진열할 아이템 필터링
+        // 상점에 진열할 아이템 필터링
         foreach (var item in artifactItems)
         {
-            // 팔리지 않았고(소모품은 위에서 부활) && 내가 안 가진 것만 추가
+            // 팔리지 않았고 && 내가 안 가진 것만 추가 (Extra Heart는 소모품처럼 계속 나오게 하려면 isSold 체크를 풀어야 함)
             if (!item.isSold && !ownedItems.Contains(item.itemName))
+            {
+                shopPool.Add(item);
+            }
+            // Extra Heart 예외 처리: 팔려도 다시 나오게 하려면
+            else if (item.itemName == "Extra Heart")
             {
                 shopPool.Add(item);
             }
         }
 
-        // 4. 품절 처리
+        // 품절 처리
         if (shopPool.Count == 0)
         {
             if (refreshButton != null) refreshButton.interactable = false;
@@ -175,7 +142,7 @@ public class ShopManager : MonoBehaviour
 
         if (refreshButton != null) refreshButton.interactable = true;
 
-        // 5. 셔플 및 선택 (최대 3개)
+        // 셔플 및 선택 (최대 3개)
         List<Item> shuffled = new List<Item>(shopPool);
         for (int i = 0; i < shuffled.Count; i++)
         {
@@ -198,16 +165,24 @@ public class ShopManager : MonoBehaviour
 
         foreach (Item item in weeklyItems)
         {
-            GameObject itemUI = CreateShopItemUI(item);
+            GameObject itemUI = CreateDefaultShopCard(item);
             itemUI.transform.SetParent(weeklyItemsContainer, false);
         }
 
-        // GameData의 shopRerollCost를 가져와서 표시
+        // 리롤 비용 표시 (할인 쿠폰 적용 여부와 관계없이 리롤 비용은 별도 관리)
         int cost = (GameData.Instance != null) ? GameData.Instance.shopRerollCost : 2;
         if (refreshCostText != null) refreshCostText.text = $"🔄 새로고침 [{cost} C]";
     }
 
-    GameObject CreateShopItemUI(Item item) => CreateDefaultShopCard(item);
+    // ★ [신규] 할인 쿠폰 적용 가격 계산
+    public int GetAdjustedCost(int originalCost)
+    {
+        if (GameData.Instance != null && GameData.Instance.GetAllActiveUpgrades().Exists(i => i.itemName == "Discount Coupon"))
+        {
+            return Mathf.Max(1, (int)(originalCost * 0.8f)); // 20% 할인
+        }
+        return originalCost;
+    }
 
     GameObject CreateDefaultShopCard(Item item)
     {
@@ -216,15 +191,19 @@ public class ShopManager : MonoBehaviour
         bg.color = new Color(0.9f, 0.9f, 0.9f);
 
         Button btn = card.AddComponent<Button>();
-        if (item.isSold) btn.interactable = false;
+
+        // Extra Heart는 계속 살 수 있으므로 isSold 체크 안함
+        if (item.itemName != "Extra Heart" && item.isSold) btn.interactable = false;
         else btn.onClick.AddListener(() => OnItemClicked(item));
 
         RectTransform rect = card.GetComponent<RectTransform>();
         rect.sizeDelta = new Vector2(250, 350);
 
+        // 툴팁 트리거
         ItemHoverTrigger trigger = card.AddComponent<ItemHoverTrigger>();
         trigger.targetItem = item;
 
+        // 아이콘
         GameObject iconObj = new GameObject("Icon");
         iconObj.transform.SetParent(card.transform, false);
         Sprite loadedSprite = Resources.Load<Sprite>(item.itemIcon);
@@ -234,37 +213,47 @@ public class ShopManager : MonoBehaviour
             Image iconImg = iconObj.AddComponent<Image>();
             iconImg.sprite = loadedSprite;
             iconObj.GetComponent<RectTransform>().sizeDelta = new Vector2(160, 160);
-            if (item.isSold) iconImg.color = new Color(1, 1, 1, 0.5f);
+            if (item.isSold && item.itemName != "Extra Heart") iconImg.color = new Color(1, 1, 1, 0.5f);
         }
         else
         {
             TextMeshProUGUI iconTxt = iconObj.AddComponent<TextMeshProUGUI>();
-            iconTxt.text = item.itemIcon;
+            iconTxt.text = item.itemName.Substring(0, 1); // 임시 아이콘 (첫 글자)
             iconTxt.fontSize = 80;
             iconTxt.alignment = TextAlignmentOptions.Center;
         }
         iconObj.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 30);
 
+        // 이름
         GameObject nameObj = new GameObject("Name");
         nameObj.transform.SetParent(card.transform, false);
         TextMeshProUGUI name = nameObj.AddComponent<TextMeshProUGUI>();
         name.text = item.itemName;
-        name.fontSize = 28;
+        name.fontSize = 24; // 글자 크기 조정
         name.fontStyle = FontStyles.Bold;
         name.color = Color.black;
         name.alignment = TextAlignmentOptions.Center;
         name.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 130);
+        name.enableWordWrapping = true; // 긴 이름 줄바꿈
 
+        // 가격 (할인 적용된 가격 표시)
         GameObject priceObj = new GameObject("Price");
         priceObj.transform.SetParent(card.transform, false);
         TextMeshProUGUI price = priceObj.AddComponent<TextMeshProUGUI>();
-        price.text = $"{item.buyPrice} C";
+
+        int finalPrice = GetAdjustedCost(item.buyPrice);
+        price.text = $"{finalPrice} C";
+
+        // 할인 중이면 색상 변경
+        if (finalPrice < item.buyPrice) price.color = new Color(0f, 0.6f, 0f); // 초록색
+        else price.color = new Color(0f, 0.2f, 0.8f); // 파란색
+
         price.fontSize = 32;
-        price.color = new Color(0f, 0.2f, 0.8f);
         price.alignment = TextAlignmentOptions.Center;
         price.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, -110);
 
-        if (item.isSold)
+        // 품절 텍스트
+        if (item.isSold && item.itemName != "Extra Heart")
         {
             GameObject soldObj = new GameObject("SoldOutText");
             soldObj.transform.SetParent(card.transform, false);
@@ -284,11 +273,16 @@ public class ShopManager : MonoBehaviour
         if (tooltipPanel == null) return;
         if (tooltipName != null) tooltipName.text = item.itemName;
         if (tooltipDesc != null) tooltipDesc.text = item.description;
-        if (tooltipPrice != null) tooltipPrice.text = $"가격: {item.buyPrice} C";
+
+        int finalPrice = GetAdjustedCost(item.buyPrice);
+        if (tooltipPrice != null)
+        {
+            tooltipPrice.text = (finalPrice < item.buyPrice)
+                ? $"가격: <s color=red>{item.buyPrice}</s> -> <color=green>{finalPrice} C</color>"
+                : $"가격: {finalPrice} C";
+        }
 
         tooltipPanel.SetActive(true);
-        RectTransform rect = tooltipPanel.GetComponent<RectTransform>();
-        if (rect != null) rect.anchoredPosition = Vector2.zero;
         tooltipPanel.transform.SetAsLastSibling();
     }
 
@@ -302,19 +296,13 @@ public class ShopManager : MonoBehaviour
     // ============================================
     void OnItemClicked(Item item)
     {
-        if (item.isSold) return;
+        if (item.isSold && item.itemName != "Extra Heart") return;
 
-        // Devil Dice 구매 방지 (주사위)
-        if (item.type == ItemType.Dice && GameData.Instance.GetAllActiveUpgrades().Exists(i => i.itemName == "Devil Dice"))
+        // 인벤토리 잠금 확인 (Devil's Contract 등으로 슬롯 부족 시)
+        if (GameData.Instance != null && GameData.Instance.artifactRelics.Count >= GameData.Instance.MaxInventorySize && item.itemName != "Extra Heart")
         {
-            ShowMessage("👿 악마의 계약으로 주사위 교체 불가!");
+            Debug.Log("🔒 인벤토리가 꽉 찼거나 잠겨 있습니다!");
             return;
-        }
-
-        // 상점 유물은 슬롯 제한 체크
-        if (item.type != ItemType.Consumable)
-        {
-            if (item.type == ItemType.Artifact && GameData.Instance.artifactRelics.Count >= GameData.Instance.maxArtifacts) { ShowMessage("유물 슬롯 꽉참"); return; }
         }
 
         ShowPurchaseConfirmation(item);
@@ -326,25 +314,32 @@ public class ShopManager : MonoBehaviour
 
         if (pendingPurchase == null) return;
 
-        if (GameData.Instance.SpendChips(pendingPurchase.buyPrice))
-        {
-            ProcessItemEffect(pendingPurchase);
+        // 할인 적용된 가격으로 결제 시도
+        int finalCost = GetAdjustedCost(pendingPurchase.buyPrice);
 
-            if (pendingPurchase.type != ItemType.Consumable)
+        if (GameData.Instance.SpendChips(finalCost))
+        {
+            // ★ [신규] Extra Heart는 즉시 적용 (인벤토리에 안 넣음)
+            if (pendingPurchase.itemName == "Extra Heart")
             {
-                if (pendingPurchase.type == ItemType.Dice) GameData.Instance.AddItemToInventory(pendingPurchase);
-                else GameData.Instance.AddUpgradeItem(pendingPurchase);
+                GameData.Instance.handsLeft++; // 목숨 증가
+                Debug.Log("❤️ 목숨 +1 획득!");
+            }
+            else
+            {
+                // 일반 아이템은 인벤토리에 추가
+                GameData.Instance.AddUpgradeItem(pendingPurchase);
+                pendingPurchase.isSold = true;
             }
 
-            pendingPurchase.isSold = true;
-            GenerateWeeklyItems(); // 목록 갱신 (중복 방지를 위해 재생성)
-            UpdateAllUpgradeUI();
+            GenerateWeeklyItems(); // 목록 갱신
             if (UIManager.Instance != null) UIManager.Instance.UpdateAllUI();
-            ShowMessage("구매 완료");
+
+            Debug.Log($"구매 완료: {pendingPurchase.itemName}");
         }
         else
         {
-            ShowMessage("칩이 부족합니다!");
+            Debug.Log("칩이 부족합니다!");
         }
         confirmPanel.SetActive(false); pendingPurchase = null;
     }
@@ -356,166 +351,12 @@ public class ShopManager : MonoBehaviour
         pendingPurchase = null;
     }
 
-    // ============================================
-    // 랜덤 뽑기
-    // ============================================
-    void OnRandomPackClicked()
+    void ShowPurchaseConfirmation(Item item)
     {
-        if (GameData.Instance.SpendChips(randomPackCost))
-        {
-            ShowSelectionPopup();
-            if (UIManager.Instance) UIManager.Instance.UpdateAllUI();
-        }
-        else
-        {
-            ShowMessage($"칩이 부족합니다! ({randomPackCost} C 필요)");
-        }
-    }
-
-    void ShowSelectionPopup()
-    {
-        if (selectionPanel == null) return;
-        selectionPanel.SetActive(true);
-        foreach (Transform child in selectionContainer) Destroy(child.gameObject);
-
-        List<Item> options = GetRandomUpgrades(3);
-
-        foreach (Item item in options)
-        {
-            GameObject card = Instantiate(selectionCardPrefab, selectionContainer);
-            Transform t = card.transform.Find("Name"); if (t) t.GetComponent<TextMeshProUGUI>().text = item.itemName;
-
-            Button btn = card.GetComponent<Button>();
-            if (btn == null) btn = card.AddComponent<Button>();
-            btn.onClick.RemoveAllListeners();
-            btn.onClick.AddListener(() => OnUpgradeSelected(item));
-
-            ItemHoverTrigger trigger = card.AddComponent<ItemHoverTrigger>();
-            trigger.targetItem = item;
-        }
-    }
-
-    List<Item> GetRandomUpgrades(int count)
-    {
-        List<Item> result = new List<Item>();
-        List<Item> temp = new List<Item>(randomPool);
-        for (int i = 0; i < count && temp.Count > 0; i++)
-        {
-            int r = Random.Range(0, temp.Count);
-            result.Add(temp[r]);
-            temp.RemoveAt(r);
-        }
-        return result;
-    }
-
-    void OnUpgradeSelected(Item item)
-    {
-        HideTooltip();
-
-        ProcessItemEffect(item);
-
-        if (item.type == ItemType.Dice)
-        {
-            if (GameData.Instance.AddItemToInventory(item))
-            {
-                ShowMessage($"[주사위] {item.itemName} 획득!");
-            }
-            else
-            {
-                ShowMessage("주사위 인벤토리가 꽉 찼습니다!");
-            }
-        }
-        else if (item.type != ItemType.Consumable)
-        {
-            if (GameData.Instance.AddUpgradeItem(item))
-            {
-                ShowMessage($"[능력] {item.itemName} 획득!");
-            }
-            else
-            {
-                ShowMessage("능력 슬롯이 꽉 찼습니다!");
-            }
-        }
-        else
-        {
-            ShowMessage($"{item.itemName} 사용됨!");
-        }
-
-        selectionPanel.SetActive(false);
-        UpdateAllUpgradeUI();
-        if (UIManager.Instance) UIManager.Instance.UpdateAllUI();
-    }
-
-    // ★ 효과 처리 함수 (구매 즉시 발동되는 효과들)
-    void ProcessItemEffect(Item item)
-    {
-        switch (item.itemName)
-        {
-            // 바겐세일 전단지: 상점 리롤 비용 감소 (최소 1원)
-            case "Bargain Flyer":
-                GameData.Instance.shopRerollCost = Mathf.Max(1, GameData.Instance.shopRerollCost - 1);
-                Debug.Log($"📉 바겐세일! 리롤 비용이 {GameData.Instance.shopRerollCost}원으로 감소했습니다.");
-                if (refreshCostText != null) refreshCostText.text = $"🔄 새로고침 [{GameData.Instance.shopRerollCost} C]";
-                break;
-
-            case "Greed's Bargain":
-                GameData.Instance.AddChips(30);
-                GameData.Instance.isStageRewardBlocked = true;
-                Debug.Log("💰 탐욕의 거래: 30칩 획득, 보상 차단됨.");
-                break;
-
-            case "Coin Sack":
-                GameData.Instance.AddChips(10);
-                Debug.Log("💰 동전 주머니: 10칩 획득");
-                break;
-
-            case "Chaos Fund":
-                GameData.Instance.AddChips(50);
-                GameData.Instance.RandomizeInventory(artifactItems);
-                Debug.Log("🌪️ 혼돈의 자금: 50칩 획득 & 인벤토리 셔플");
-                break;
-
-            case "Pandora's Box":
-                // GameData의 ExpandInventory 호출 (Devil Dice 체크 포함)
-                GameData.Instance.ExpandInventory(2);
-                GameData.Instance.RandomizeInventory(artifactItems);
-                Debug.Log("📦 판도라의 상자: 슬롯 확장 시도 & 셔플");
-                break;
-
-            case "Black Card":
-                GameData.Instance.hasCreditCard = true;
-                Debug.Log("💳 블랙 카드: 외상 한도 -20까지 확장");
-                break;
-        }
-    }
-
-    void ShowMessage(string m) { Debug.Log(m); }
-
-    public void UpdateAllUpgradeUI()
-    {
-        UpdateSingleGrid(randomSlotContainer, GameData.Instance.randomBuffs);
-        UpdateSingleGrid(artifactSlotContainer, GameData.Instance.artifactRelics);
-    }
-
-    void UpdateSingleGrid(Transform container, List<Item> dataList)
-    {
-        if (container == null) return;
-        for (int i = 0; i < container.childCount; i++)
-        {
-            Transform slot = container.GetChild(i);
-            foreach (Transform child in slot) Destroy(child.gameObject);
-
-            if (i < dataList.Count)
-            {
-                Item data = dataList[i];
-                GameObject iconObj = Instantiate(upgradeIconPrefab, slot);
-                Image img = iconObj.GetComponent<Image>();
-                Sprite loaded = Resources.Load<Sprite>(data.itemIcon);
-                if (img != null && loaded != null) { img.sprite = loaded; var t = iconObj.GetComponentInChildren<TextMeshProUGUI>(); if (t) t.text = ""; }
-                else { var t = iconObj.GetComponentInChildren<TextMeshProUGUI>(); if (t) t.text = data.itemIcon; }
-                iconObj.GetComponent<RectTransform>().anchoredPosition = Vector2.zero;
-            }
-        }
+        pendingPurchase = item;
+        confirmPanel.SetActive(true);
+        int cost = GetAdjustedCost(item.buyPrice);
+        confirmText.text = $"{item.itemName}\n{cost} C\n구매하시겠습니까?";
     }
 
     // 새로고침 함수
@@ -524,6 +365,4 @@ public class ShopManager : MonoBehaviour
         if (GameData.Instance.SpendChips(GameData.Instance.shopRerollCost))
             GenerateWeeklyItems();
     }
-
-    void ShowPurchaseConfirmation(Item item) { pendingPurchase = item; confirmPanel.SetActive(true); confirmText.text = $"{item.itemName}\n{item.buyPrice} C\n구매?"; }
 }
