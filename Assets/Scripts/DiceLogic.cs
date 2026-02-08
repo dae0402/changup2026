@@ -4,7 +4,6 @@ using System.Linq;
 
 public class DiceLogic : MonoBehaviour
 {
-    // ... (상단 변수 및 Enum 정의는 기존과 동일) ...
     private const int GRID_WIDTH = 5;
 
     public enum HandType
@@ -41,21 +40,42 @@ public class DiceLogic : MonoBehaviour
             die.finalMult = 1.0f;
         }
 
-        // 2. 특수 타일 효과 (로그 추가)
+        // 2. 특수 타일 효과 (Magic Paint 등)
         ApplyGridBonus(dice);
 
-        // 3. 유물 효과 적용 (로그 추가)
+        // 3. 유물 효과 적용 (기존 5종 + 신규 아이템들 적용)
         ApplyNewArtifacts(dice);
 
         // 4. 족보 판별
         Dictionary<int, int> counts = CountDiceValues(dice);
         HandType hand = DetermineHandType(dice, counts);
 
-        // 5. 글리치 판정
-        bool hasGlitchUSB = GameData.Instance != null && GameData.Instance.GetAllActiveUpgrades().Exists(i => i.itemName == "Glitch USB");
-        if (hasGlitchUSB && hand == HandType.Straight) Debug.Log("👾 [Glitch USB] 스트레이트가 글리치로 판정됨!");
+        // ========================================================
+        // ★ [신규] 스트레이트 관련 아이템 효과 (Glitch USB, Order Emblem)
+        // ========================================================
+        List<Item> activeItems = (GameData.Instance != null) ? GameData.Instance.GetAllActiveUpgrades() : new List<Item>();
 
-        bool isGlitch = (hand >= HandType.ThreeOfAKind) || (hasGlitchUSB && hand == HandType.Straight);
+        float handMult = handMultipliers[hand];
+        bool isGlitch = (hand >= HandType.ThreeOfAKind); // 기본 글리치 조건
+
+        if (hand == HandType.Straight)
+        {
+            // 1. [Glitch USB] 스트레이트도 글리치 인정
+            bool hasGlitchUSB = activeItems.Exists(i => i.itemName == "Glitch USB");
+            if (hasGlitchUSB)
+            {
+                isGlitch = true;
+                Debug.Log("👾 [Glitch USB] 스트레이트 -> 글리치 발동!");
+            }
+
+            // 2. [Order Emblem] 스트레이트 배율 +7.0 추가
+            bool hasOrderEmblem = activeItems.Exists(i => i.itemName == "Order Emblem");
+            if (hasOrderEmblem)
+            {
+                handMult += 7.0f; // 기본 6.0 + 7.0 = 13.0배
+                Debug.Log($"🛡️ [Order Emblem] 스트레이트 배율 +7.0 추가! (총 x{handMult})");
+            }
+        }
 
         // 6. 최종 점수 계산
         long sumOfDice = 0;
@@ -66,9 +86,6 @@ public class DiceLogic : MonoBehaviour
             sumOfDice += (long)diceTotal;
         }
 
-        float handMult = handMultipliers[hand];
-
-        // 최종 로그 출력
         Debug.Log($"📊 [결과] 족보: {handNames[hand]} (x{handMult}) | 최종 주사위 점수 합: {sumOfDice}");
 
         double finalCalc = sumOfDice * handMult;
@@ -88,6 +105,28 @@ public class DiceLogic : MonoBehaviour
         {
             ApplySingleArtifactEffect(item.itemName, diceList, items);
         }
+
+        // 일괄 적용 아이템들 (판도라, 수집가 시리즈)
+        if (items.Exists(i => i.itemName == "Pandora's Box"))
+        {
+            float bonus = GameData.Instance.pandoraMultiplier - 1.0f;
+            foreach (var d in diceList) d.finalMult += bonus;
+            Debug.Log($"📦 [Pandora] 배율 보정: +{bonus:F1}");
+        }
+
+        if (items.Exists(i => i.itemName == "Artifact Collector"))
+        {
+            float bonus = items.Count * 0.5f;
+            foreach (var d in diceList) d.finalMult += bonus;
+            Debug.Log($"🏺 [Artifact Collector] 유물 {items.Count}개 -> +{bonus:F1}");
+        }
+
+        if (items.Exists(i => i.itemName == "Dice Collector"))
+        {
+            float bonus = diceList.Count * 0.5f;
+            foreach (var d in diceList) d.finalMult += bonus;
+            Debug.Log($"🎲 [Dice Collector] 주사위 {diceList.Count}개 -> +{bonus:F1}");
+        }
     }
 
     private void ApplySingleArtifactEffect(string itemName, List<DiceData> diceList, List<Item> inventory)
@@ -97,19 +136,11 @@ public class DiceLogic : MonoBehaviour
         switch (itemName)
         {
             case "Mirror of Rank":
-                var targetItem = inventory
-                    .Where(i => i.itemName != "Mirror of Rank")
-                    .OrderByDescending(i => i.buyPrice)
-                    .FirstOrDefault();
-
+                var targetItem = inventory.Where(i => i.itemName != "Mirror of Rank").OrderByDescending(i => i.buyPrice).FirstOrDefault();
                 if (targetItem != null)
                 {
-                    Debug.Log($"🪞 [Mirror of Rank] '{targetItem.itemName}' 효과를 복사합니다!");
+                    Debug.Log($"🪞 [Mirror of Rank] '{targetItem.itemName}' 효과 복사!");
                     ApplySingleArtifactEffect(targetItem.itemName, diceList, inventory);
-                }
-                else
-                {
-                    Debug.Log("🪞 [Mirror of Rank] 복사할 다른 아이템이 없습니다.");
                 }
                 break;
 
@@ -123,33 +154,28 @@ public class DiceLogic : MonoBehaviour
                 break;
 
             case "Heavy Shackle":
-                Debug.Log("🔗 [Heavy Shackle] 점수 2배 적용 (배율 +1.0)");
+                Debug.Log("🔗 [Heavy Shackle] 점수 2배 (배율 +1.0)");
                 foreach (var d in diceList) d.finalMult += 1.0f;
                 break;
 
             case "Underdog's Hope":
                 if (sumOfValues <= 24)
                 {
-                    Debug.Log($"🐶 [Underdog's Hope] 합 {sumOfValues} (<=24) 달성! 점수 3배 적용 (배율 +2.0)");
+                    Debug.Log("🐶 [Underdog's Hope] 합 <= 24 달성! (배율 +2.0)");
                     foreach (var d in diceList) d.finalMult += 2.0f;
                 }
                 break;
 
             case "Devil's Contract":
-                Debug.Log("👿 [Devil's Contract] 점수 5배 적용 (배율 +4.0)");
+                Debug.Log("👿 [Devil's Contract] 점수 5배 (배율 +4.0)");
                 foreach (var d in diceList) d.finalMult += 4.0f;
                 break;
 
             case "Blackjack":
                 if (sumOfValues == 21)
                 {
-                    Debug.Log("🃏 [Blackjack] 잭팟! 합 21 달성! 점수 20배 적용 (배율 +19.0)");
+                    Debug.Log("🃏 [Blackjack] 잭팟! 합 21! (배율 +19.0)");
                     foreach (var d in diceList) d.finalMult += 19.0f;
-                }
-                else
-                {
-                    // (너무 자주 뜨면 시끄러우니 주석 처리 가능)
-                    // Debug.Log($"🃏 [Blackjack] 합 {sumOfValues} (조건 불만족)");
                 }
                 break;
         }
@@ -168,7 +194,7 @@ public class DiceLogic : MonoBehaviour
                 paintActive = true;
             }
         }
-        if (paintActive) Debug.Log("🎨 [Magic Paint] 보너스 타일 위 주사위에 +2점 적용됨");
+        if (paintActive) Debug.Log("🎨 [Magic Paint] 보너스 타일 적용 (+2점)");
     }
 
     // ... (GameManager 호환용 더미 함수 및 헬퍼 함수들은 기존과 동일하게 유지) ...
