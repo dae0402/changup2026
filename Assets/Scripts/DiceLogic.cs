@@ -40,39 +40,31 @@ public class DiceLogic : MonoBehaviour
             die.finalMult = 1.0f;
         }
 
-        // 2. 특수 타일 효과 (Magic Paint 등)
+        // 2. 특수 타일 효과
         ApplyGridBonus(dice);
 
-        // 3. 유물 효과 적용 (기존 5종 + 신규 아이템들 적용)
+        // 3. 유물 효과 적용 (신규 아이템 로직 포함)
         ApplyNewArtifacts(dice);
 
         // 4. 족보 판별
         Dictionary<int, int> counts = CountDiceValues(dice);
         HandType hand = DetermineHandType(dice, counts);
 
-        // ========================================================
-        // ★ [신규] 스트레이트 관련 아이템 효과 (Glitch USB, Order Emblem)
-        // ========================================================
+        // 5. 스트레이트 & 글리치 로직
         List<Item> activeItems = (GameData.Instance != null) ? GameData.Instance.GetAllActiveUpgrades() : new List<Item>();
-
         float handMult = handMultipliers[hand];
-        bool isGlitch = (hand >= HandType.ThreeOfAKind); // 기본 글리치 조건
+        bool isGlitch = (hand >= HandType.ThreeOfAKind);
 
         if (hand == HandType.Straight)
         {
-            // 1. [Glitch USB] 스트레이트도 글리치 인정
-            bool hasGlitchUSB = activeItems.Exists(i => i.itemName == "Glitch USB");
-            if (hasGlitchUSB)
+            if (activeItems.Exists(i => i.itemName == "Glitch USB"))
             {
                 isGlitch = true;
                 Debug.Log("👾 [Glitch USB] 스트레이트 -> 글리치 발동!");
             }
-
-            // 2. [Order Emblem] 스트레이트 배율 +7.0 추가
-            bool hasOrderEmblem = activeItems.Exists(i => i.itemName == "Order Emblem");
-            if (hasOrderEmblem)
+            if (activeItems.Exists(i => i.itemName == "Order Emblem"))
             {
-                handMult += 7.0f; // 기본 6.0 + 7.0 = 13.0배
+                handMult += 7.0f;
                 Debug.Log($"🛡️ [Order Emblem] 스트레이트 배율 +7.0 추가! (총 x{handMult})");
             }
         }
@@ -84,6 +76,19 @@ public class DiceLogic : MonoBehaviour
             float diceValue = Mathf.Max(0, die.value + die.bonusScore);
             float diceTotal = diceValue * die.finalMult;
             sumOfDice += (long)diceTotal;
+        }
+
+        // ★ [신규 아이템 2] Skill Scanner (특수 주사위 추가 점수)
+        // Normal이 아닌 주사위 갯수만큼 점수 추가
+        if (activeItems.Exists(i => i.itemName == "Skill Scanner"))
+        {
+            int specialDiceCount = dice.Count(d => d.diceType != "Normal");
+            if (specialDiceCount > 0)
+            {
+                long bonus = specialDiceCount * 30; // 개당 30점
+                sumOfDice += bonus;
+                Debug.Log($"📡 [Skill Scanner] 특수 주사위 {specialDiceCount}개 감지 -> +{bonus}점");
+            }
         }
 
         Debug.Log($"📊 [결과] 족보: {handNames[hand]} (x{handMult}) | 최종 주사위 점수 합: {sumOfDice}");
@@ -99,39 +104,56 @@ public class DiceLogic : MonoBehaviour
         if (GameData.Instance == null) return;
         List<Item> items = GameData.Instance.GetAllActiveUpgrades();
 
-        Debug.Log($"🎒 [유물 적용] 보유 아이템 수: {items.Count}개");
+        int activatedArtifactCount = 0; // ★ 발동된 유물 횟수 카운트
 
+        // 개별 아이템 적용 및 발동 여부 체크
         foreach (var item in items)
         {
-            ApplySingleArtifactEffect(item.itemName, diceList, items);
+            // ApplySingleArtifactEffect가 이제 bool(발동 성공 여부)을 반환합니다.
+            bool triggered = ApplySingleArtifactEffect(item.itemName, diceList, items);
+            if (triggered) activatedArtifactCount++;
         }
 
-        // 일괄 적용 아이템들 (판도라, 수집가 시리즈)
+        // 일괄 적용 아이템들
         if (items.Exists(i => i.itemName == "Pandora's Box"))
         {
             float bonus = GameData.Instance.pandoraMultiplier - 1.0f;
             foreach (var d in diceList) d.finalMult += bonus;
-            Debug.Log($"📦 [Pandora] 배율 보정: +{bonus:F1}");
+            activatedArtifactCount++; // 판도라는 항상 발동
         }
 
         if (items.Exists(i => i.itemName == "Artifact Collector"))
         {
             float bonus = items.Count * 0.5f;
             foreach (var d in diceList) d.finalMult += bonus;
-            Debug.Log($"🏺 [Artifact Collector] 유물 {items.Count}개 -> +{bonus:F1}");
+            activatedArtifactCount++; // 상시 발동
         }
 
         if (items.Exists(i => i.itemName == "Dice Collector"))
         {
             float bonus = diceList.Count * 0.5f;
             foreach (var d in diceList) d.finalMult += bonus;
-            Debug.Log($"🎲 [Dice Collector] 주사위 {diceList.Count}개 -> +{bonus:F1}");
+            activatedArtifactCount++; // 상시 발동
+        }
+
+        // ★ [신규 아이템 1] Ancient Battery (유물 발동 시 추가 점수)
+        if (items.Exists(i => i.itemName == "Ancient Battery"))
+        {
+            if (activatedArtifactCount > 0)
+            {
+                // 배터리 자기 자신을 뺀 횟수 (선택 사항, 여기선 포함함)
+                float totalBonus = activatedArtifactCount * 50;
+                foreach (var d in diceList) d.bonusScore += (int)(totalBonus / diceList.Count); // 점수를 주사위에 분배
+                Debug.Log($"🔋 [Ancient Battery] 유물 {activatedArtifactCount}회 발동 -> 총 +{totalBonus}점 추가");
+            }
         }
     }
 
-    private void ApplySingleArtifactEffect(string itemName, List<DiceData> diceList, List<Item> inventory)
+    // ★ [중요] 반환 타입을 void -> bool로 변경 (발동했으면 true 리턴)
+    private bool ApplySingleArtifactEffect(string itemName, List<DiceData> diceList, List<Item> inventory)
     {
         int sumOfValues = diceList.Sum(d => d.value);
+        bool isTriggered = false;
 
         switch (itemName)
         {
@@ -140,7 +162,11 @@ public class DiceLogic : MonoBehaviour
                 if (targetItem != null)
                 {
                     Debug.Log($"🪞 [Mirror of Rank] '{targetItem.itemName}' 효과 복사!");
-                    ApplySingleArtifactEffect(targetItem.itemName, diceList, inventory);
+                    // 복사된 효과가 발동했는지 체크
+                    if (ApplySingleArtifactEffect(targetItem.itemName, diceList, inventory))
+                    {
+                        isTriggered = true;
+                    }
                 }
                 break;
 
@@ -149,13 +175,18 @@ public class DiceLogic : MonoBehaviour
                 if (!string.IsNullOrEmpty(randomEffect))
                 {
                     Debug.Log($"🌀 [Chaos Orb] 현재 효과 '{randomEffect}' 발동!");
-                    ApplySingleArtifactEffect(randomEffect, diceList, inventory);
+                    if (ApplySingleArtifactEffect(randomEffect, diceList, inventory))
+                    {
+                        isTriggered = true;
+                    }
                 }
                 break;
 
             case "Heavy Shackle":
-                Debug.Log("🔗 [Heavy Shackle] 점수 2배 (배율 +1.0)");
+                // 상시 적용이므로 true
+                Debug.Log("🔗 [Heavy Shackle] 점수 2배");
                 foreach (var d in diceList) d.finalMult += 1.0f;
+                isTriggered = true;
                 break;
 
             case "Underdog's Hope":
@@ -163,12 +194,14 @@ public class DiceLogic : MonoBehaviour
                 {
                     Debug.Log("🐶 [Underdog's Hope] 합 <= 24 달성! (배율 +2.0)");
                     foreach (var d in diceList) d.finalMult += 2.0f;
+                    isTriggered = true; // ★ 조건 만족 시에만 true
                 }
                 break;
 
             case "Devil's Contract":
-                Debug.Log("👿 [Devil's Contract] 점수 5배 (배율 +4.0)");
+                Debug.Log("👿 [Devil's Contract] 점수 5배");
                 foreach (var d in diceList) d.finalMult += 4.0f;
+                isTriggered = true;
                 break;
 
             case "Blackjack":
@@ -176,15 +209,19 @@ public class DiceLogic : MonoBehaviour
                 {
                     Debug.Log("🃏 [Blackjack] 잭팟! 합 21! (배율 +19.0)");
                     foreach (var d in diceList) d.finalMult += 19.0f;
+                    isTriggered = true; // ★ 조건 만족 시에만 true
                 }
                 break;
+
+                // Glitch USB, Order Emblem 등은 AnalyzeDice에서 처리하므로 여기선 false
         }
+
+        return isTriggered;
     }
 
     private void ApplyGridBonus(List<DiceData> dice)
     {
         if (GameData.Instance == null) return;
-
         bool paintActive = false;
         for (int i = 0; i < dice.Count; i++)
         {
@@ -197,7 +234,6 @@ public class DiceLogic : MonoBehaviour
         if (paintActive) Debug.Log("🎨 [Magic Paint] 보너스 타일 적용 (+2점)");
     }
 
-    // ... (GameManager 호환용 더미 함수 및 헬퍼 함수들은 기존과 동일하게 유지) ...
     public float CheckPositionBonus(List<DiceData> dice) { return 1.0f; }
     public float CheckSpecialDiceBonus(List<DiceData> dice) { return 1.0f; }
     public int CalculateFinalGlitchScore(int storedScore, int currentHandScore, int comboCount) => Mathf.RoundToInt((storedScore + currentHandScore) * Mathf.Pow(2, comboCount));

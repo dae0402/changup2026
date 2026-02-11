@@ -35,7 +35,7 @@ public class ShopManager : MonoBehaviour
     private Item pendingPurchase;
 
     // ============================================
-    // ★ 아이템 데이터 (통합 20종)
+    // ★ 아이템 데이터 (통합 22종)
     // ============================================
     private List<Item> artifactItems = new List<Item>();
 
@@ -53,7 +53,7 @@ public class ShopManager : MonoBehaviour
         if (tooltipPanel != null) tooltipPanel.SetActive(false);
     }
 
-    // ★ [핵심] 모든 아이템 20종 등록
+    // ★ [핵심] 모든 아이템 22종 등록
     void InitializeShopItems()
     {
         artifactItems.Clear();
@@ -87,6 +87,10 @@ public class ShopManager : MonoBehaviour
         // --- Group E. 스트레이트 특화 (2종) ---
         artifactItems.Add(new Item("Glitch USB", "USBIcon", "스트레이트도 글리치 판정 인정", 6, ItemType.Artifact));
         artifactItems.Add(new Item("Order Emblem", "OrderIcon", "스트레이트 달성 시 배율 +7.0 추가", 7, ItemType.Artifact));
+
+        // --- Group F. 조건부 추가 점수 (신규 2종) ---
+        artifactItems.Add(new Item("Ancient Battery", "BatteryIcon", "유물 효과가 발동될 때마다 +50점", 7, ItemType.Artifact));
+        artifactItems.Add(new Item("Skill Scanner", "ScannerIcon", "특수 주사위 1개당 +30점", 6, ItemType.Artifact));
     }
 
     public void ResetShop()
