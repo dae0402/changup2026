@@ -3,8 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 
 /// <summary>
-/// 게임의 모든 데이터를 저장하는 클래스 (Singleton)
-/// 20종 아이템 로직 + GameManager 호환성 완벽 적용
+/// 게임의 모든 데이터를 저장하는 싱글톤 클래스
 /// </summary>
 public class GameData : MonoBehaviour
 {
@@ -38,89 +37,82 @@ public class GameData : MonoBehaviour
     }
 
     // ============================================
-    // 플레이어 자원
+    // 1. 플레이어 자원
     // ============================================
     [Header("플레이어 자원")]
     public int debt = 500;
     public int wallet = 0;
     public int chips = 10;
 
-    public int handsLeft = 3;    // 현재 목숨
-    public int maxHands = 3;     // 최대 목숨 (Overload Gear로 감소 가능)
+    public int handsLeft = 3;
+    public int maxHands = 3;
 
     public int rerollsLeft = 3;
-    public int baseRerolls = 3;  // 기본 리롤 횟수
+    public int baseRerolls = 3;
 
     [Header("상점 설정")]
     public int shopRerollCost = 2;
 
     // ============================================
-    // 게임 상태 변수
+    // 2. 게임 상태
     // ============================================
     [Header("게임 상태")]
     public int currentHandScore = 0;
     public int totalScore = 0;
     public float feverMultiplier = 1f;
 
-    // ★ [복구] GameManager / UIManager 호환용 변수
     public int savedPot = 0;
     public bool isFirstRoll = true;
 
     // ============================================
-    // ★ [핵심] 특수 효과 상태 변수
+    // 3. 특수 효과 상태
     // ============================================
     [Header("★ 특수 효과 상태")]
-    public HashSet<int> bonusTileIndices = new HashSet<int>(); // [Magic Paint] 타일 위치
-    public string currentChaosEffectName = "";                 // [Chaos Orb] 현재 효과
-    public float pandoraMultiplier = 1.0f;                     // [Pandora's Box] 배율
-    public int lockedInventoryCount = 0;                       // [Pandora's Box] 잠금 칸 수
-    public bool hasCreditCard = false;                         // [Credit Card] 보유 여부
+    public HashSet<int> bonusTileIndices = new HashSet<int>();
+    public string currentChaosEffectName = "";
+    public float pandoraMultiplier = 1.0f;
+    public int lockedInventoryCount = 0;
+    public bool hasCreditCard = false;
 
-    // [Chaos Orb]가 선택할 수 있는 효과 풀
     private List<string> chaosEffectPool = new List<string>
     {
         "Heavy Shackle", "Underdog's Hope", "Devil's Contract", "Blackjack", "Glitch USB"
     };
 
     // ============================================
-    // 주사위 및 인벤토리 데이터
+    // 4. 주사위 및 인벤토리 데이터
     // ============================================
-    [Header("주사위 데이터")]
+    [Header("보유 주사위 목록")]
     public List<DiceData> currentDice = new List<DiceData>();
 
-    // ★ [복구] GameManager 호환용 리스트
     public List<int> availableDiceValues = new List<int> { 1, 2, 3, 4, 5, 6 };
 
-    [Header("인벤토리")]
+    [Header("일반 인벤토리 (사용 안 함)")]
     public List<Item> inventory = new List<Item>();
 
-    // ★ [수정됨] 악마의 계약 + 판도라의 상자 둘 다 적용
     public int MaxInventorySize
     {
         get
         {
             int baseSize = 8;
-            // 1. Devil's Contract (개당 2칸 잠금)
             int contractLock = GetAllActiveUpgrades().FindAll(i => i.itemName == "Devil's Contract").Count * 2;
-            // 2. Pandora's Box (랜덤 잠금)
             int totalLock = contractLock + lockedInventoryCount;
-
             return Mathf.Max(1, baseSize - totalLock);
         }
     }
 
-    [Header("유물 슬롯")]
+    [Header("유물(아티팩트) 슬롯")]
     public List<Item> artifactRelics = new List<Item>();
     public int maxArtifacts = 8;
-    public List<Item> randomBuffs = new List<Item>(); // 레거시 호환용
+    public List<Item> randomBuffs = new List<Item>();
 
     public bool isRolling = false;
     public bool canSubmit = false;
     public bool isProcessingTurn = false;
-    public bool isStageRewardBlocked = false; // 레거시 호환용
+    public bool isStageRewardBlocked = false;
 
     // ============================================
-    // 핵심 메서드
+    // 핵심 기능 메서드
     // ============================================
 
     public void ResetGame()
@@ -149,49 +141,34 @@ public class GameData : MonoBehaviour
         if (ShopManager.Instance != null) ShopManager.Instance.ResetShop();
     }
 
-    // 🔄 라운드 시작 (StartNewTurn)
     public void StartNewTurn()
     {
         if (handsLeft <= 0) { Debug.Log("💀 [Game Over]"); return; }
 
-        // 1. [Credit Card] 이자 발생
         if (hasCreditCard && chips < 0)
         {
             int interest = Random.Range(1, 5);
             chips -= interest;
-            Debug.Log($"💳 [Credit Card] 빚 이자 {interest}C 발생! 현재 자금: {chips}C");
         }
 
-        // 2. 리롤 횟수 계산
         int currentMaxRerolls = baseRerolls;
-
-        // [Overload Gear] 효과 (+2)
-        if (artifactRelics.Exists(i => i.itemName == "Overload Gear"))
-        {
-            currentMaxRerolls += 2;
-        }
-
-        // ★ [수정됨] [Heavy Shackle] 효과 (-1)
+        if (artifactRelics.Exists(i => i.itemName == "Overload Gear")) currentMaxRerolls += 2;
         int shackleCount = artifactRelics.FindAll(i => i.itemName == "Heavy Shackle").Count;
         currentMaxRerolls = Mathf.Max(0, currentMaxRerolls - shackleCount);
 
-        // 3. [Time Capsule] 리롤 이월
         if (artifactRelics.Exists(i => i.itemName == "Time Capsule"))
         {
             rerollsLeft += currentMaxRerolls;
-            Debug.Log($"⏳ [Time Capsule] 리롤 이월됨! 현재: {rerollsLeft}");
         }
         else
         {
             rerollsLeft = currentMaxRerolls;
         }
 
-        // 4. [Pandora's Box] 랜덤 효과
         if (artifactRelics.Exists(i => i.itemName == "Pandora's Box"))
         {
             pandoraMultiplier = Random.Range(0.5f, 3.0f);
             lockedInventoryCount = Random.Range(1, 4);
-            Debug.Log($"📦 [Pandora] 배율: x{pandoraMultiplier:F1}, 잠금: {lockedInventoryCount}칸");
         }
         else
         {
@@ -199,7 +176,6 @@ public class GameData : MonoBehaviour
             lockedInventoryCount = 0;
         }
 
-        // 5. [Magic Paint] 타일 설정
         bonusTileIndices.Clear();
         if (artifactRelics.Exists(i => i.itemName == "Magic Paint"))
         {
@@ -210,15 +186,12 @@ public class GameData : MonoBehaviour
                 bonusTileIndices.Add(available[r]);
                 available.RemoveAt(r);
             }
-            Debug.Log($"🎨 [Magic Paint] 보너스 타일: {string.Join(", ", bonusTileIndices)}");
         }
 
-        // 6. [Chaos Orb] 효과 설정
         if (artifactRelics.Exists(i => i.itemName == "Chaos Orb"))
         {
             int r = Random.Range(0, chaosEffectPool.Count);
             currentChaosEffectName = chaosEffectPool[r];
-            Debug.Log($"🌀 [Chaos Orb] 이번 라운드 효과: {currentChaosEffectName}");
         }
         else
         {
@@ -242,14 +215,12 @@ public class GameData : MonoBehaviour
         totalScore = (tempTotal > int.MaxValue) ? int.MaxValue : (int)tempTotal;
     }
 
-    // ★ [복구] GameManager 호환용 함수
     public void AddMoney(int amount)
     {
         wallet += amount;
         if (wallet >= debt) Debug.Log("🎉 빚 상환 완료!");
     }
 
-    // 🎲 리롤 로직 (Lucky Coin)
     public bool TryReroll()
     {
         if (isProcessingTurn) return false;
@@ -259,17 +230,12 @@ public class GameData : MonoBehaviour
 
         if (artifactRelics.Exists(i => i.itemName == "Lucky Coin"))
         {
-            if (Random.value < 0.1f)
-            {
-                isFree = true;
-                Debug.Log("🍀 [Lucky Coin] 행운 발동! 리롤 소모 없음.");
-            }
+            if (Random.value < 0.1f) isFree = true;
         }
 
         if (rerollsLeft >= cost || isFree)
         {
             if (!isFree) rerollsLeft -= cost;
-
             isProcessingTurn = true;
             Invoke("UnlockTurn", 0.5f);
             return true;
@@ -279,7 +245,6 @@ public class GameData : MonoBehaviour
 
     void UnlockTurn() => isProcessingTurn = false;
 
-    // 💰 칩 사용 로직
     public bool SpendChips(int amount)
     {
         int limit = hasCreditCard ? -20 : 0;
@@ -296,45 +261,27 @@ public class GameData : MonoBehaviour
         chips += amount;
     }
 
-    public bool AddItemToInventory(Item item)
-    {
-        if (inventory.Count >= MaxInventorySize) return false;
-        inventory.Add(item);
-        return true;
-    }
-
-    public void RemoveItemFromInventory(int index)
-    {
-        if (index >= 0 && index < inventory.Count)
-        {
-            inventory.RemoveAt(index);
-        }
-    }
-
     public bool AddUpgradeItem(Item item)
     {
+        if (item.type == ItemType.Dice)
+        {
+            DiceData newDice = new DiceData(currentDice.Count, Random.Range(1, 7), item.itemName);
+            currentDice.Add(newDice);
+            Debug.Log($"🎲 [GameData] 주사위 획득 성공! : {item.itemName}");
+            return true;
+        }
+
         if (item.type == ItemType.Artifact)
         {
             if (item.itemName != "Extra Heart" && artifactRelics.Exists(x => x.itemName == item.itemName)) return false;
-
-            // 인벤토리 잠금 체크 (여기서 MaxInventorySize 속성을 사용하므로 로직 적용됨)
             if (artifactRelics.Count >= MaxInventorySize)
             {
-                Debug.Log("🔒 인벤토리가 잠겨있거나 가득 차서 구매 불가");
+                Debug.Log("🔒 인벤토리 가득 참");
                 return false;
             }
-
             artifactRelics.Add(item);
-
-            if (item.itemName == "Overload Gear")
-            {
-                maxHands--;
-                if (handsLeft > maxHands) handsLeft = maxHands;
-                Debug.Log("⚙️ [Overload Gear] 최대 목숨 -1");
-            }
-
+            if (item.itemName == "Overload Gear") { maxHands--; if (handsLeft > maxHands) handsLeft = maxHands; }
             if (item.itemName == "Credit Card") hasCreditCard = true;
-
             return true;
         }
         return false;
@@ -351,8 +298,6 @@ public class GameData : MonoBehaviour
     public void RandomizeAllArtifacts(List<Item> shopDatabase)
     {
         if (artifactRelics.Count == 0) return;
-
-        Debug.Log("🌪️ [Chaos Fund] 모든 유물이 랜덤하게 변경됩니다!");
         for (int i = 0; i < artifactRelics.Count; i++)
         {
             Item randomItem = shopDatabase[Random.Range(0, shopDatabase.Count)];
@@ -360,9 +305,24 @@ public class GameData : MonoBehaviour
         }
     }
 
-    public void ExpandInventory(int amount) { /* 더미 */ }
-}
+    public void AddItemToInventory(Item item) { if (inventory.Count < 20) inventory.Add(item); }
+    public void RemoveItemFromInventory(int index) { if (index >= 0 && index < inventory.Count) inventory.RemoveAt(index); }
+    public void ExpandInventory(int amount) { }
 
+    public void MoveDice(DiceData dice, int newSlotIndex)
+    {
+        if (dice != null)
+        {
+            dice.slotIndex = newSlotIndex;
+            Debug.Log($"🎲 주사위 이동 완료: {dice.diceType} -> 슬롯 {newSlotIndex}");
+        }
+    }
+
+} // End of GameData class
+
+// ============================================
+// ★ [수정됨] 주사위 데이터 클래스
+// ============================================
 [System.Serializable]
 public class DiceData
 {
@@ -372,9 +332,15 @@ public class DiceData
     public string diceType;
     public int roundsHeld;
 
-    public int finalScore;
-    public float finalMult;
-    public int bonusScore;
+    // --- [특수 주사위 효과 계산을 위한 실시간 변수들] ---
+    public int finalScore;           // 복사된 눈금 등 최종 눈금
+    public int bonusScore;           // 고정 보너스 점수 (예: 얼음 주사위)
+    public float finalMult;          // 개인 배율 (예: 시간, 컴백 주사위)
+
+    public float externalBuffMult;   // 외부(주변 주사위)에서 받는 버프 누적
+    public float externalNerfMult;   // 외부(주변 주사위)에서 받는 너프 누적
+    public bool isImmuneToNerf;      // 너프 무시 여부 (강철 주사위)
+    public int totalScoreCalculated; // 모든 계산이 반영된 이 주사위의 최종 점수
 
     public DiceData(int index, int val, string type = "Normal")
     {
@@ -383,9 +349,15 @@ public class DiceData
         isSelected = false;
         diceType = type;
         roundsHeld = 0;
+
+        // 초기값 설정
         finalScore = val;
         finalMult = 1.0f;
         bonusScore = 0;
+        externalBuffMult = 1.0f;
+        externalNerfMult = 1.0f;
+        isImmuneToNerf = (type == "Steel Dice"); // 강철 주사위는 기본 너프 면역
+        totalScoreCalculated = 0;
     }
 }
 
@@ -395,10 +367,8 @@ public class Item
     public string itemName;
     public string itemIcon;
     public string description;
-
     public int buyPrice;
     public int cost => buyPrice;
-
     public int sellPrice;
     public ItemType type;
     public bool isSold = false;

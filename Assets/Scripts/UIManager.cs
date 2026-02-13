@@ -1,6 +1,7 @@
 ﻿using UnityEngine;
 using UnityEngine.UI;
 using TMPro; // TextMeshPro 사용
+using System.Collections.Generic; // 리스트 사용을 위해 필수
 
 /// <summary>
 /// 모든 UI 요소를 업데이트하는 매니저
@@ -77,6 +78,16 @@ public class UIManager : MonoBehaviour
     public GameObject rightPanel;   // 통계 패널 (게임/상점 공통)
 
     // ============================================
+    // ★ [추가됨] 주사위 슬롯 관리용 변수
+    // ============================================
+    [Header("★ 주사위 슬롯 설정")]
+    public Transform slotContainer; // Grid Layout이 있는 부모 객체 (SlotContainer)
+    public GameObject slotPrefab;   // 생성할 슬롯 프리팹 (DropSlot 스크립트 포함)
+
+    // 생성된 모든 슬롯을 관리하는 리스트 (하이라이트 기능용)
+    public List<DropSlot> allSlots = new List<DropSlot>();
+
+    // ============================================
     // 초기화
     // ============================================
     void Start()
@@ -86,6 +97,9 @@ public class UIManager : MonoBehaviour
         if (rerollButton) rerollButton.onClick.AddListener(OnRerollButtonClicked);
         if (submitButton) submitButton.onClick.AddListener(OnSubmitButtonClicked);
 
+        // ★ 슬롯 초기화 및 리스트 저장 (이게 추가되었습니다!)
+        InitializeSlots();
+
         // 초기 UI 업데이트
         UpdateAllUI();
 
@@ -93,6 +107,32 @@ public class UIManager : MonoBehaviour
         ShowTitleScreen();
 
         Debug.Log("UIManager 초기화 완료!");
+    }
+
+    // ★ [추가됨] 슬롯 생성 및 초기화 함수
+    void InitializeSlots()
+    {
+        // 슬롯 컨테이너가 연결 안 되어있으면 실행 안 함
+        if (slotContainer == null || slotPrefab == null) return;
+
+        allSlots.Clear();
+
+        // 기존 슬롯 삭제 (혹시 남아있다면)
+        foreach (Transform child in slotContainer) { Destroy(child.gameObject); }
+
+        // 16개 슬롯 생성 (8x2 그리드 기준)
+        for (int i = 0; i < 16; i++)
+        {
+            GameObject slotObj = Instantiate(slotPrefab, slotContainer);
+            slotObj.name = $"Slot_{i}";
+
+            DropSlot slot = slotObj.GetComponent<DropSlot>();
+            if (slot != null)
+            {
+                slot.slotIndex = i;
+                allSlots.Add(slot); // 리스트에 추가해서 나중에 색깔 바꿀 때 씀
+            }
+        }
     }
 
     // ============================================
@@ -105,6 +145,26 @@ public class UIManager : MonoBehaviour
         UpdateGamePanel();
         UpdateButtons();
         UpdateInventory();
+        UpdateDiceUI(); // ★ 주사위 UI 업데이트 추가
+    }
+
+    // ★ [추가됨] 주사위 UI 업데이트 (슬롯에 주사위 배치)
+    void UpdateDiceUI()
+    {
+        if (GameData.Instance == null) return;
+
+        // 1. 모든 슬롯 비우기
+        foreach (var slot in allSlots) { slot.ClearSlot(); }
+
+        // 2. GameData에 있는 주사위들을 해당 슬롯에 배치
+        foreach (DiceData dice in GameData.Instance.currentDice)
+        {
+            // 슬롯 인덱스가 유효한지 확인
+            if (dice.slotIndex >= 0 && dice.slotIndex < allSlots.Count)
+            {
+                allSlots[dice.slotIndex].SetDice(dice);
+            }
+        }
     }
 
     public void UpdateStats()
