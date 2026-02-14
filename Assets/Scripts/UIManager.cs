@@ -1,27 +1,16 @@
 ﻿using UnityEngine;
 using UnityEngine.UI;
-using TMPro; // TextMeshPro 사용
-using System.Collections.Generic; // 리스트 사용을 위해 필수
+using TMPro;
+using System.Collections.Generic;
 
-/// <summary>
-/// 모든 UI 요소를 업데이트하는 매니저
-/// GameData의 값이 바뀌면 화면에 표시
-/// </summary>
 public class UIManager : MonoBehaviour
 {
-    // ============================================
-    // Singleton 패턴
-    // ============================================
     private static UIManager _instance;
-
     public static UIManager Instance
     {
         get
         {
-            if (_instance == null)
-            {
-                _instance = FindObjectOfType<UIManager>();
-            }
+            if (_instance == null) _instance = FindObjectOfType<UIManager>();
             return _instance;
         }
     }
@@ -30,136 +19,89 @@ public class UIManager : MonoBehaviour
     {
         if (_instance != null && _instance != this)
         {
-            Debug.LogWarning("UIManager 중복! 기존 것을 사용합니다.");
             Destroy(gameObject);
             return;
         }
         _instance = this;
-
-        Debug.Log("UIManager Awake 완료!");
     }
 
-    // ============================================
-    // UI 요소 연결 (인스펙터에서 드래그 앤 드롭)
-    // ============================================
-
     [Header("스탯 UI (오른쪽 패널)")]
-    public TextMeshProUGUI debtText;        // 빚 표시
-    public TextMeshProUGUI walletText;      // 지갑 표시
-    public TextMeshProUGUI chipsText;       // 칩 표시 (게임 화면)
-    public TextMeshProUGUI handsLeftText;   // 남은 손 횟수
+    public TextMeshProUGUI debtText;
+    public TextMeshProUGUI walletText;
+    public TextMeshProUGUI chipsText;
+    public TextMeshProUGUI handsLeftText;
 
     [Header("상점 UI")]
-    public TextMeshProUGUI shopChipsText;   // 칩 표시 (상점 화면)
+    public TextMeshProUGUI shopChipsText;
 
     [Header("게임 패널 UI")]
-    public TextMeshProUGUI handNameText;         // 현재 패 이름
-    public TextMeshProUGUI handMultiplierText;   // 배율 표시
-    public TextMeshProUGUI savedPotText;         // 저장된 점수
-    public TextMeshProUGUI currentScoreText;     // 현재 점수
-    public TextMeshProUGUI feverMultText;        // 피버 배율
-    public TextMeshProUGUI totalScoreText;       // 총 점수
+    public TextMeshProUGUI handNameText;
+    public TextMeshProUGUI handMultiplierText;
+    public TextMeshProUGUI savedPotText;
+    public TextMeshProUGUI currentScoreText;
+    public TextMeshProUGUI feverMultText;
+    public TextMeshProUGUI totalScoreText;
 
     [Header("버튼들")]
-    public Button rollButton;       // 주사위 굴리기 버튼
-    public Button rerollButton;     // 리롤 버튼
-    public Button submitButton;     // 제출 버튼
-    public TextMeshProUGUI rerollButtonText; // 리롤 남은 횟수 표시
+    public Button rollButton;
+    public Button rerollButton;
+    public Button submitButton;
+    public TextMeshProUGUI rerollButtonText;
 
     [Header("인벤토리 슬롯들")]
-    public GameObject[] inventorySlots; // 8개 슬롯 배열
+    public GameObject[] inventorySlots;
 
     [Header("화면들")]
-    public GameObject titleScreen;  // 타이틀 화면
-    public GameObject gameScreen;   // 게임 화면
-    public GameObject shopScreen;   // 상점 화면
+    public GameObject titleScreen;
+    public GameObject gameScreen;
+    public GameObject shopScreen;
+    public GameObject rightPanel;
 
-    // ★ RightPanel은 Hierarchy에서 GameScreen 밖으로 빼내서 연결해야 합니다!
-    public GameObject rightPanel;   // 통계 패널 (게임/상점 공통)
-
-    // ============================================
-    // ★ [추가됨] 주사위 슬롯 관리용 변수
-    // ============================================
-    [Header("★ 주사위 슬롯 설정")]
-    public Transform slotContainer; // Grid Layout이 있는 부모 객체 (SlotContainer)
-    public GameObject slotPrefab;   // 생성할 슬롯 프리팹 (DropSlot 스크립트 포함)
-
-    // 생성된 모든 슬롯을 관리하는 리스트 (하이라이트 기능용)
+    [Header("★ 주사위 슬롯 데이터")]
+    // DiceSpawner에서 생성된 슬롯들이 여기에 담깁니다.
     public List<DropSlot> allSlots = new List<DropSlot>();
 
-    // ============================================
-    // 초기화
-    // ============================================
+    // ★ 색상 설정: 알파값 0.7f로 설정하여 검은 배경에서도 선명하게 보이게 함
+    private Color buffColor = new Color(1f, 1f, 0f, 0.7f); // 선명한 노랑 (Buff)
+    private Color nerfColor = new Color(1f, 0f, 0f, 0.7f); // 선명한 빨강 (Nerf)
+
     void Start()
     {
-        // 버튼 클릭 이벤트 연결
         if (rollButton) rollButton.onClick.AddListener(OnRollButtonClicked);
         if (rerollButton) rerollButton.onClick.AddListener(OnRerollButtonClicked);
         if (submitButton) submitButton.onClick.AddListener(OnSubmitButtonClicked);
 
-        // ★ 슬롯 초기화 및 리스트 저장 (이게 추가되었습니다!)
-        InitializeSlots();
-
-        // 초기 UI 업데이트
         UpdateAllUI();
-
-        // 시작 시 타이틀 화면 보여주기 (필요시)
         ShowTitleScreen();
-
-        Debug.Log("UIManager 초기화 완료!");
     }
 
-    // ★ [추가됨] 슬롯 생성 및 초기화 함수
-    void InitializeSlots()
-    {
-        // 슬롯 컨테이너가 연결 안 되어있으면 실행 안 함
-        if (slotContainer == null || slotPrefab == null) return;
-
-        allSlots.Clear();
-
-        // 기존 슬롯 삭제 (혹시 남아있다면)
-        foreach (Transform child in slotContainer) { Destroy(child.gameObject); }
-
-        // 16개 슬롯 생성 (8x2 그리드 기준)
-        for (int i = 0; i < 16; i++)
-        {
-            GameObject slotObj = Instantiate(slotPrefab, slotContainer);
-            slotObj.name = $"Slot_{i}";
-
-            DropSlot slot = slotObj.GetComponent<DropSlot>();
-            if (slot != null)
-            {
-                slot.slotIndex = i;
-                allSlots.Add(slot); // 리스트에 추가해서 나중에 색깔 바꿀 때 씀
-            }
-        }
-    }
-
-    // ============================================
-    // 전체 UI 업데이트
-    // ============================================
-
+    // GameManager 등에서 호출하는 메인 UI 업데이트 함수
     public void UpdateAllUI()
     {
         UpdateStats();
         UpdateGamePanel();
         UpdateButtons();
         UpdateInventory();
-        UpdateDiceUI(); // ★ 주사위 UI 업데이트 추가
+        UpdateDiceUI();
+
+        // ★ 주사위 위치에 따라 주변 칸 색칠하기
+        UpdateSlotColors();
     }
 
-    // ★ [추가됨] 주사위 UI 업데이트 (슬롯에 주사위 배치)
+    // 슬롯에 주사위 데이터를 매칭시키는 함수
     void UpdateDiceUI()
     {
-        if (GameData.Instance == null) return;
+        if (GameData.Instance == null || allSlots.Count == 0) return;
 
-        // 1. 모든 슬롯 비우기
-        foreach (var slot in allSlots) { slot.ClearSlot(); }
+        // 모든 슬롯 비우기 (시각적 초기화)
+        foreach (var slot in allSlots)
+        {
+            if (slot != null) slot.ClearSlot();
+        }
 
-        // 2. GameData에 있는 주사위들을 해당 슬롯에 배치
+        // 현재 소지한 주사위 데이터를 슬롯 번호에 맞춰 배치
         foreach (DiceData dice in GameData.Instance.currentDice)
         {
-            // 슬롯 인덱스가 유효한지 확인
             if (dice.slotIndex >= 0 && dice.slotIndex < allSlots.Count)
             {
                 allSlots[dice.slotIndex].SetDice(dice);
@@ -167,37 +109,107 @@ public class UIManager : MonoBehaviour
         }
     }
 
+    // 주사위 타입별 영향 범위를 찾아 색칠하는 핵심 로직
+    void UpdateSlotColors()
+    {
+        if (GameData.Instance == null || allSlots.Count == 0) return;
+
+        // 1. 모든 슬롯의 하이라이트 초기화 (투명하게)
+        foreach (var slot in allSlots)
+        {
+            if (slot != null) slot.ResetHighlight();
+        }
+
+        // 2. 현재 배치된 주사위들을 검사하여 색칠
+        foreach (DiceData dice in GameData.Instance.currentDice)
+        {
+            string typeName = dice.diceType.Trim().ToLower();
+
+            // 버프 계열: 십자(+) 범위 노란색
+            if (typeName == "buff dice" || typeName == "mirror dice" || typeName == "chameleon dice")
+            {
+                PaintNeighbors(dice.slotIndex, "cross", buffColor);
+            }
+            // 스프링 주사위: 십자(+) 노랑색 + 대각선 4칸 빨간색
+            else if (typeName == "spring dice")
+            {
+                PaintNeighbors(dice.slotIndex, "cross", buffColor);
+                PaintNeighbors(dice.slotIndex, "3x3_outer", nerfColor);
+            }
+        }
+    }
+
+    // ★ 가로 5칸 그리드 기준으로 주변 인덱스를 찾는 수학 함수
+    void PaintNeighbors(int centerIndex, string shape, Color color)
+    {
+        int columns = 5; // 가로 5칸 기준
+        int row = centerIndex / columns;
+        int col = centerIndex % columns;
+
+        for (int i = 0; i < allSlots.Count; i++)
+        {
+            if (allSlots[i] == null) continue;
+
+            int r = i / columns;
+            int c = i % columns;
+            bool isTarget = false;
+
+            // 자기 자신 슬롯은 색칠에서 제외
+            if (i == centerIndex) continue;
+
+            if (shape == "cross")
+            {
+                // 상하좌우 1칸 거리 체크
+                if ((r == row && Mathf.Abs(c - col) == 1) || (c == col && Mathf.Abs(r - row) == 1))
+                    isTarget = true;
+            }
+            else if (shape == "3x3")
+            {
+                // 주변 8칸 모두 체크
+                if (Mathf.Abs(r - row) <= 1 && Mathf.Abs(c - col) <= 1)
+                    isTarget = true;
+            }
+            else if (shape == "3x3_outer")
+            {
+                // 3x3 범위(주변 8칸) 중 상하좌우를 제외한 대각선 4칸만 체크
+                bool in3x3 = Mathf.Abs(r - row) <= 1 && Mathf.Abs(c - col) <= 1;
+                bool isCross = (r == row || c == col);
+                if (in3x3 && !isCross) isTarget = true;
+            }
+
+            if (isTarget)
+            {
+                allSlots[i].SetSlotColor(color);
+            }
+        }
+    }
+
+    // --- GameManager와의 연결을 위한 필수 함수들 ---
+
     public void UpdateStats()
     {
         if (GameData.Instance == null) return;
-
         if (debtText) debtText.text = $"${GameData.Instance.debt}";
         if (walletText) walletText.text = $"${GameData.Instance.wallet}";
         if (chipsText) chipsText.text = GameData.Instance.chips.ToString();
         if (handsLeftText) handsLeftText.text = GameData.Instance.handsLeft.ToString();
-
-        if (shopChipsText != null)
-        {
-            shopChipsText.text = GameData.Instance.chips.ToString();
-        }
+        if (shopChipsText != null) shopChipsText.text = GameData.Instance.chips.ToString();
     }
 
     public void UpdateGamePanel()
     {
         if (GameData.Instance == null) return;
-
         if (savedPotText) savedPotText.text = GameData.Instance.savedPot.ToString();
         if (currentScoreText) currentScoreText.text = GameData.Instance.currentHandScore.ToString();
         if (feverMultText) feverMultText.text = $"x {GameData.Instance.feverMultiplier:F1}";
         if (totalScoreText) totalScoreText.text = GameData.Instance.totalScore.ToString();
+        
     }
 
     public void UpdateButtons()
     {
         if (GameData.Instance == null) return;
-
         if (rollButton) rollButton.interactable = GameData.Instance.handsLeft > 0 && !GameData.Instance.isRolling;
-
         if (rerollButton)
         {
             rerollButton.interactable = GameData.Instance.rerollsLeft > 0 &&
@@ -205,25 +217,20 @@ public class UIManager : MonoBehaviour
                                         !GameData.Instance.isRolling;
         }
         if (rerollButtonText) rerollButtonText.text = $"CHEAT [{GameData.Instance.rerollsLeft}]";
-
         if (submitButton) submitButton.interactable = GameData.Instance.canSubmit && !GameData.Instance.isRolling;
     }
 
     public void UpdateInventory()
     {
         if (GameData.Instance == null || inventorySlots == null) return;
-
         for (int i = 0; i < inventorySlots.Length; i++)
         {
             if (inventorySlots[i] == null) continue;
-
             TextMeshProUGUI slotText = inventorySlots[i].GetComponentInChildren<TextMeshProUGUI>();
-
             if (i < GameData.Instance.inventory.Count)
             {
                 Item item = GameData.Instance.inventory[i];
                 if (slotText) slotText.text = item.itemIcon;
-
                 int index = i;
                 Button slotButton = inventorySlots[i].GetComponent<Button>();
                 if (slotButton != null)
@@ -232,10 +239,7 @@ public class UIManager : MonoBehaviour
                     slotButton.onClick.AddListener(() => OnInventorySlotClicked(index));
                 }
             }
-            else
-            {
-                if (slotText) slotText.text = "";
-            }
+            else if (slotText) slotText.text = "";
         }
     }
 
@@ -243,54 +247,18 @@ public class UIManager : MonoBehaviour
     {
         if (handNameText) handNameText.text = handName;
         if (handMultiplierText) handMultiplierText.text = $"x{multiplier:F1}";
-        Debug.Log($"패 결과: {handName} (x{multiplier})");
     }
 
-    // ============================================
-    // 버튼 클릭 이벤트
-    // ============================================
+    public void ShowScorePopup(int score) => Debug.Log($"💰 {score}점 획득!");
 
-    void OnRollButtonClicked()
-    {
-        if (GameManager.Instance != null) GameManager.Instance.RollDice();
-    }
-
-    void OnRerollButtonClicked()
-    {
-        if (GameManager.Instance != null) GameManager.Instance.RerollSelectedDice();
-    }
-
-    void OnSubmitButtonClicked()
-    {
-        if (GameManager.Instance != null) GameManager.Instance.SubmitHand();
-    }
-
-    void OnInventorySlotClicked(int index)
-    {
-        if (GameData.Instance == null || index >= GameData.Instance.inventory.Count) return;
-
-        Item item = GameData.Instance.inventory[index];
-        Debug.Log($"아이템 '{item.itemName}' 판매: {item.sellPrice}칩");
-
-        GameData.Instance.AddChips(item.sellPrice);
-        GameData.Instance.RemoveItemFromInventory(index);
-        UpdateAllUI();
-    }
-
-    // ============================================
-    // 화면 전환 (여기가 핵심!)
-    // ============================================
+    // --- 화면 전환 및 내비게이션 ---
 
     public void ShowTitleScreen()
     {
         if (titleScreen) titleScreen.SetActive(true);
         if (gameScreen) gameScreen.SetActive(false);
         if (shopScreen) shopScreen.SetActive(false);
-
-        // ★ 타이틀에서는 안 보임
         if (rightPanel != null) rightPanel.SetActive(false);
-
-        Debug.Log("타이틀 화면으로 전환");
     }
 
     public void ShowGameScreen()
@@ -298,12 +266,8 @@ public class UIManager : MonoBehaviour
         if (titleScreen) titleScreen.SetActive(false);
         if (gameScreen) gameScreen.SetActive(true);
         if (shopScreen) shopScreen.SetActive(false);
-
-        // ★ 게임 화면: 보임
         if (rightPanel != null) rightPanel.SetActive(true);
-
         UpdateNavigationButtons("game");
-        Debug.Log("게임 화면으로 전환");
     }
 
     public void ShowShopScreen()
@@ -311,13 +275,9 @@ public class UIManager : MonoBehaviour
         if (titleScreen) titleScreen.SetActive(false);
         if (gameScreen) gameScreen.SetActive(false);
         if (shopScreen) shopScreen.SetActive(true);
-
-        // ★ 상점 화면: 보임 (여기가 중요!)
         if (rightPanel != null) rightPanel.SetActive(true);
-
         UpdateNavigationButtons("shop");
-        UpdateStats(); // 상점 진입 시 스탯 갱신
-        Debug.Log("상점 화면으로 전환");
+        UpdateStats();
     }
 
     void UpdateNavigationButtons(string currentScreen)
@@ -340,10 +300,21 @@ public class UIManager : MonoBehaviour
         }
     }
 
-    // ============================================
-    // 피드백 (임시)
-    // ============================================
-    public void ShowScorePopup(int score) => Debug.Log($"💰 {score}점 획득!");
+    // --- 이벤트 리스너 ---
+
+    void OnRollButtonClicked() { if (GameManager.Instance != null) GameManager.Instance.RollDice(); }
+    void OnRerollButtonClicked() { if (GameManager.Instance != null) GameManager.Instance.RerollSelectedDice(); }
+    void OnSubmitButtonClicked() { if (GameManager.Instance != null) GameManager.Instance.SubmitHand(); }
+
+    void OnInventorySlotClicked(int index)
+    {
+        if (GameData.Instance == null || index >= GameData.Instance.inventory.Count) return;
+        Item item = GameData.Instance.inventory[index];
+        GameData.Instance.AddChips(item.sellPrice);
+        GameData.Instance.RemoveItemFromInventory(index);
+        UpdateAllUI();
+    }
+
     public void ShowHandCompletedEffect(string handName) => Debug.Log($"🎰 {handName} 완성!");
     public void ShowMessage(string message) => Debug.Log($"💬 {message}");
 }

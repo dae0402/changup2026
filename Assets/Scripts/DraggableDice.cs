@@ -33,11 +33,22 @@ public class DraggableDice : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
     {
         if (diceData == null) return;
 
-        if (valueText != null) valueText.text = diceData.value.ToString();
+        // ★ [수정됨] 기본 눈금 대신, 계산된 최종 점수를 표시
+        // 아직 계산 전(0점)이라면 기본 눈금 표시
+        int displayScore = (diceData.totalScoreCalculated > 0) ? diceData.totalScoreCalculated : diceData.value;
+
+        if (valueText != null)
+        {
+            valueText.text = displayScore.ToString();
+
+            // 점수 변화에 따른 색상 변경 (시각적 피드백)
+            if (displayScore > diceData.value) valueText.color = Color.green;      // 버프됨
+            else if (displayScore < diceData.value) valueText.color = Color.red;   // 너프됨
+            else valueText.color = Color.white;                                    // 기본
+        }
+
         if (typeText != null) typeText.text = diceData.diceType;
 
-        // 아이콘 로드 (Resources 폴더 안에 DiceIcons 폴더가 있어야 함 / 없으면 생략 가능)
-        // 예: Resources/DiceIcons/FireIcon
         string iconName = GetIconNameByType(diceData.diceType);
         Sprite icon = Resources.Load<Sprite>($"DiceIcons/{iconName}");
         if (icon != null && diceImage != null)

@@ -4,35 +4,61 @@ using UnityEngine.EventSystems;
 
 public class DropSlot : MonoBehaviour, IDropHandler
 {
-    public int slotIndex;
-    private DiceData currentDice;
-    public GameObject diceObject;
-    private Image backgroundImage; // 슬롯의 배경 이미지
-    private Color originalColor;   // 원래 색상 저장
+    [Header("슬롯 정보")]
+    public int slotIndex;          // 코드가 부여하는 슬롯의 고유 번호
+    public Image highlightImage;   // 색칠할 자식 오브젝트 (Highlight)
 
-    // ★ 버프/너프 색상 정의
-    private Color buffColor = new Color(1f, 1f, 0f, 0.5f); // 노란색 (반투명)
-    private Color nerfColor = new Color(1f, 0f, 0f, 0.5f); // 빨간색 (반투명)
+    [Header("현재 상태")]
+    public GameObject diceObject;  // 이 슬롯 위에 생성된 실제 주사위 오브젝트
+    private DiceData currentDice;  // 이 슬롯에 할당된 데이터
+
+    // ★ 색상 설정: 0.7f로 투명도를 조절하여 검은 배경에서도 선명하게 보이게 함
+    private Color buffColor = new Color(1f, 1f, 0f, 0.7f); // 선명한 노랑
+    private Color nerfColor = new Color(1f, 0f, 0f, 0.7f); // 선명한 빨강
+    private Color clearColor = new Color(0f, 0f, 0f, 0f);  // 완전 투명
 
     void Awake()
     {
-        backgroundImage = GetComponent<Image>();
-        if (backgroundImage != null)
+        // 1. 인스펙터에서 연결 안했을 경우를 대비해 자동으로 'Highlight' 자식을 찾음
+        if (highlightImage == null)
         {
-            originalColor = backgroundImage.color;
+            Transform child = transform.Find("Highlight");
+            if (child != null) highlightImage = child.GetComponent<Image>();
         }
+
+        // 2. 초기 상태는 항상 투명하게 설정
+        ResetHighlight();
     }
+
+    // --- 색상 관리 함수 ---
+
+    public void SetSlotColor(Color color)
+    {
+        if (highlightImage != null) highlightImage.color = color;
+    }
+
+    public void SetBuffHighlight() => SetSlotColor(buffColor);
+    public void SetNerfHighlight() => SetSlotColor(nerfColor);
+    public void ResetHighlight() => SetSlotColor(clearColor);
+    public void ResetColor() => ResetHighlight();
+
+    // --- 주사위 상호작용 함수 ---
 
     public void OnDrop(PointerEventData eventData)
     {
+        // 드래그 중인 오브젝트를 가져옴
         GameObject droppedObject = eventData.pointerDrag;
         if (droppedObject != null)
         {
             DraggableDice draggable = droppedObject.GetComponent<DraggableDice>();
             if (draggable != null)
             {
+                // 데이터 업데이트 및 위치 이동
                 DiceData dice = draggable.GetDiceData();
-                GameData.Instance.MoveDice(dice, slotIndex); // GameData에 MoveDice가 필요함
+                GameData.Instance.MoveDice(dice, slotIndex);
+
+                // 효과 재계산 및 UI 전체 새로고침 (이때 색깔도 다시 칠해짐)
+                DiceEffectManager.ApplyAllDiceEffects();
                 UIManager.Instance.UpdateAllUI();
             }
         }
@@ -41,21 +67,7 @@ public class DropSlot : MonoBehaviour, IDropHandler
     public void SetDice(DiceData dice)
     {
         currentDice = dice;
-        if (diceObject == null)
-        {
-            // DiceManager가 없다면 Instantiate 부분을 확인해야 함 (보통 프리팹을 UIManager나 다른 곳에서 가져옴)
-            // 여기서는 UIManager나 ShopManager의 프리팹을 참조하거나, DiceManager가 있다고 가정
-            if (UIManager.Instance != null && UIManager.Instance.slotPrefab != null)
-            {
-                // 주의: 여기서는 주사위 알맹이 프리팹이 필요합니다. 
-                // 만약 DiceManager가 없다면 UIManager에 주사위 프리팹을 추가해서 연결해야 합니다.
-                // 일단 기존 코드를 유지합니다.
-                // diceObject = Instantiate(DiceManager.Instance.dicePrefab, transform); 
-            }
-        }
-
-        // (참고) 주사위 생성 로직은 기존 프로젝트 상황에 맞춰야 합니다.
-        // DraggableDice 컴포넌트 설정
+        // 주사위 시각화 로직 (필요시 추가)
         if (diceObject != null)
         {
             DraggableDice draggable = diceObject.GetComponent<DraggableDice>();
@@ -66,31 +78,20 @@ public class DropSlot : MonoBehaviour, IDropHandler
     public void ClearSlot()
     {
         currentDice = null;
+
+        // ★ [중요] Destroy 에러 방지용 안전장치
+        // 프로젝트 창의 원본(Asset)이 아니라 씬에 있는 복제본(Instance)일 때만 파괴
         if (diceObject != null)
         {
-            Destroy(diceObject);
+            if (diceObject.scene.name != null) // 씬에 존재하는 오브젝트인지 확인
+            {
+                Destroy(diceObject);
+            }
             diceObject = null;
         }
+
         ResetHighlight();
     }
 
     public bool IsEmpty() => currentDice == null;
-
-    // ★ 버프 하이라이트 (노란색)
-    public void SetBuffHighlight()
-    {
-        if (backgroundImage != null) backgroundImage.color = buffColor;
-    }
-
-    // ★ 너프 하이라이트 (빨간색)
-    public void SetNerfHighlight()
-    {
-        if (backgroundImage != null) backgroundImage.color = nerfColor;
-    }
-
-    // ★ 하이라이트 초기화 (원래 색으로)
-    public void ResetHighlight()
-    {
-        if (backgroundImage != null) backgroundImage.color = originalColor;
-    }
 }
