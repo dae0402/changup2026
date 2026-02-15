@@ -97,7 +97,9 @@ public class DiceEffectManager : MonoBehaviour
 
     private static List<DiceData> GetNeighbors(DiceData center, List<DiceData> all, string type)
     {
-        int cRow = center.slotIndex / 8; int cCol = center.slotIndex % 8;
+        int columns = 5;
+        int cRow = center.slotIndex / 5; 
+        int cCol = center.slotIndex % 5;
         List<DiceData> results = new List<DiceData>();
         foreach (var other in all)
         {

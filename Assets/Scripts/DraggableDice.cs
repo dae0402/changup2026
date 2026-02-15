@@ -16,6 +16,10 @@ public class DraggableDice : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
     private RectTransform rectTransform;
     private Canvas parentCanvas;
 
+    // ★ 색상 정의 (UIManager와 동일하게)
+    private Color buffColor = new Color(1f, 1f, 0f, 0.7f); // 노란색
+    private Color nerfColor = new Color(1f, 0f, 0f, 0.7f); // 빨간색
+
     void Awake()
     {
         canvasGroup = GetComponent<CanvasGroup>();
@@ -111,7 +115,7 @@ public class DraggableDice : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
         }
     }
 
-    // 드래그 중인 위치 아래의 슬롯을 찾아 범위 표시
+    // ★ [수정됨] 드래그 중인 위치 아래의 슬롯을 찾아 범위 표시
     private void ShowBuffNerfRange(PointerEventData eventData)
     {
         ResetAllHighlights();
@@ -122,7 +126,10 @@ public class DraggableDice : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
             foreach (var slot in UIManager.Instance.allSlots)
             {
                 // 마우스가 슬롯 위에 있는지 확인
-                if (RectTransformUtility.RectangleContainsScreenPoint(slot.GetComponent<RectTransform>(), eventData.position, parentCanvas.worldCamera))
+                if (RectTransformUtility.RectangleContainsScreenPoint(
+                    slot.GetComponent<RectTransform>(),
+                    eventData.position,
+                    parentCanvas.worldCamera))
                 {
                     targetSlot = slot;
                     break;
@@ -132,11 +139,74 @@ public class DraggableDice : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
 
         if (targetSlot != null && diceData != null)
         {
-            // 여기에 주사위별 범위 로직 적용 (버프: 노랑 / 너프: 빨강)
-            // (간단 예시: 자기 자신만 버프)
-            targetSlot.SetBuffHighlight();
+            // ★ 주사위 타입별 범위 표시
+            string typeName = diceData.diceType.Trim().ToLower();
+            int targetIndex = targetSlot.slotIndex;
 
-            // 만약 십자 범위 등을 원하시면 아까 드린 긴 코드를 적용하면 됩니다.
+            // 버프 계열: 십자(+) 범위 노란색
+            if (typeName == "buff dice" || typeName == "mirror dice" || typeName == "chameleon dice")
+            {
+                PaintNeighborsPreview(targetIndex, "cross", buffColor);
+            }
+            // 스프링 주사위: 십자(+) 노랑색 + 대각선 4칸 빨간색
+            else if (typeName == "spring dice")
+            {
+                PaintNeighborsPreview(targetIndex, "cross", buffColor);
+                PaintNeighborsPreview(targetIndex, "3x3_outer", nerfColor);
+            }
+            // 일반 주사위: 자기 자신만 하이라이트
+            else
+            {
+                targetSlot.SetBuffHighlight(true, new Color(1f, 1f, 1f, 0.3f)); // 연한 흰색
+            }
+        }
+    }
+
+    // ★ 가로 5칸 그리드 기준으로 주변 인덱스를 찾아 색칠하는 함수
+    void PaintNeighborsPreview(int centerIndex, string shape, Color color)
+    {
+        if (UIManager.Instance == null) return;
+
+        int columns = 5; // 가로 5칸 기준
+        int row = centerIndex / columns;
+        int col = centerIndex % columns;
+
+        foreach (var slot in UIManager.Instance.allSlots)
+        {
+            if (slot == null) continue;
+
+            int slotIdx = slot.slotIndex;
+            int r = slotIdx / columns;
+            int c = slotIdx % columns;
+            bool isTarget = false;
+
+            // 자기 자신 슬롯은 색칠에서 제외
+            if (slotIdx == centerIndex) continue;
+
+            if (shape == "cross")
+            {
+                // 상하좌우 1칸 거리 체크
+                if ((r == row && Mathf.Abs(c - col) == 1) || (c == col && Mathf.Abs(r - row) == 1))
+                    isTarget = true;
+            }
+            else if (shape == "3x3")
+            {
+                // 주변 8칸 모두 체크
+                if (Mathf.Abs(r - row) <= 1 && Mathf.Abs(c - col) <= 1)
+                    isTarget = true;
+            }
+            else if (shape == "3x3_outer")
+            {
+                // 3x3 범위(주변 8칸) 중 상하좌우를 제외한 대각선 4칸만 체크
+                bool in3x3 = Mathf.Abs(r - row) <= 1 && Mathf.Abs(c - col) <= 1;
+                bool isCross = (r == row || c == col);
+                if (in3x3 && !isCross) isTarget = true;
+            }
+
+            if (isTarget)
+            {
+                slot.SetBuffHighlight(true, color);
+            }
         }
     }
 }

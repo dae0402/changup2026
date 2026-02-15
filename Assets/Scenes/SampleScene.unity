@@ -5178,7 +5178,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!224 &754142781
 RectTransform:
   m_ObjectHideFlags: 0
@@ -8883,6 +8883,7 @@ MonoBehaviour:
   feverMultiplier: 1
   savedPot: 0
   isFirstRoll: 1
+  currentHandName: 
   currentChaosEffectName: 
   pandoraMultiplier: 1
   lockedInventoryCount: 0
@@ -9202,6 +9203,10 @@ MonoBehaviour:
   dicePrefab: {fileID: 8887419232423980945, guid: c5578cb0728ced44ea818dd8e191970e, type: 3}
   rows: 3
   columns: 5
+  cellSize: {x: 100, y: 100}
+  spacing: {x: 15, y: 30}
+  paddingLeft: 0
+  paddingTop: 0
   diceSprites: []
 --- !u!114 &1315873925
 MonoBehaviour:
@@ -11460,8 +11465,6 @@ MonoBehaviour:
   gameScreen: {fileID: 754142780}
   shopScreen: {fileID: 958196473}
   rightPanel: {fileID: 773854236}
-  slotContainer: {fileID: 0}
-  slotPrefab: {fileID: 0}
   allSlots: []
 --- !u!4 &1672607699
 Transform:
@@ -12430,7 +12433,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &1862343213
 RectTransform:
   m_ObjectHideFlags: 0

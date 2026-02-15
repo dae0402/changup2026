@@ -2,6 +2,7 @@
 using UnityEngine.UI;
 using TMPro;
 using System.Collections.Generic;
+using System.Linq; // LINQ 사용을 위해 추가
 
 public class ShopManager : MonoBehaviour
 {
@@ -15,7 +16,7 @@ public class ShopManager : MonoBehaviour
 
     [Header("기본 상점 UI")]
     public Transform weeklyItemsContainer;
-    public GameObject shopItemPrefab;
+    public GameObject shopItemPrefab; // 프리팹이 할당되어 있어야 합니다.
     public Button refreshButton;
     public TextMeshProUGUI refreshCostText;
 
@@ -65,7 +66,7 @@ public class ShopManager : MonoBehaviour
     void InitializeShopItems()
     {
         artifactItems.Clear();
-        // (기존 아이템 데이터 유지 - 생략 가능하지만 복붙 편의를 위해 남김)
+        // (기존 아이템 데이터 유지)
         artifactItems.Add(new Item("Discount Coupon", "CouponIcon", "상점 가격 20% 할인", 5, ItemType.Artifact));
         artifactItems.Add(new Item("Mirror of Rank", "MirrorIcon", "가장 비싼 아이템 효과 복사", 8, ItemType.Artifact));
         artifactItems.Add(new Item("Magic Paint", "PaintIcon", "랜덤 타일 2칸에 보너스 점수 부여", 4, ItemType.Artifact));
@@ -93,6 +94,7 @@ public class ShopManager : MonoBehaviour
     void InitializeDiceItems()
     {
         diceItems.Clear();
+        // (기존 주사위 아이템 데이터 유지)
         diceItems.Add(new Item("Time Dice", "TimeIcon", "보유 라운드만큼 배율 증가", 10, ItemType.Dice));
         diceItems.Add(new Item("Ice Dice", "IceIcon", "타일 색에 따라 점수 증감", 8, ItemType.Dice));
         diceItems.Add(new Item("Rubber Dice", "RubberIcon", "버프/디버프 절반 적용", 7, ItemType.Dice));
@@ -116,14 +118,28 @@ public class ShopManager : MonoBehaviour
         if (refreshButton != null) refreshButton.interactable = true;
     }
 
+    // ★ [핵심] 중복 아이템 방지 로직 적용
     void GenerateWeeklyItems()
     {
         weeklyItems.Clear();
-        List<Item> shopPool = new List<Item>(artifactItems);
-        for (int i = 0; i < 3; i++)
+        // 구매 가능한 아이템 풀 생성 (이미 보유한 것 제외)
+        List<Item> shopPool = artifactItems.Where(item => !GameData.Instance.HasItem(item.itemName)).ToList();
+
+        // 3개 뽑기 (풀이 부족하면 있는 만큼만)
+        int countToSpawn = Mathf.Min(3, shopPool.Count);
+
+        // 중복 없이 랜덤 선택
+        HashSet<int> selectedIndices = new HashSet<int>();
+        while (selectedIndices.Count < countToSpawn)
         {
-            weeklyItems.Add(shopPool[Random.Range(0, shopPool.Count)]);
+            selectedIndices.Add(Random.Range(0, shopPool.Count));
         }
+
+        foreach (int index in selectedIndices)
+        {
+            weeklyItems.Add(shopPool[index]);
+        }
+
         DisplayWeeklyItems();
     }
 
@@ -164,19 +180,28 @@ public class ShopManager : MonoBehaviour
 
         foreach (Transform child in selectionContainer) Destroy(child.gameObject);
 
-        List<Item> shuffled = new List<Item>(diceItems);
-        for (int i = 0; i < shuffled.Count; i++)
+        // ★ 중복 없는 3개의 주사위 선택지 생성
+        List<Item> availableDice = new List<Item>(diceItems); // 모든 주사위 목록 복사
+        List<Item> selectedOptions = new List<Item>();
+
+        // 보유 중이지 않은 주사위만 필터링 (선택 사항: 주사위 중복 보유 허용 여부에 따라 결정)
+        // availableDice = availableDice.Where(d => !GameData.Instance.HasItem(d.itemName)).ToList();
+
+        int count = Mathf.Min(3, availableDice.Count);
+        HashSet<int> pickedIndices = new HashSet<int>();
+
+        while (pickedIndices.Count < count)
         {
-            Item temp = shuffled[i]; int r = Random.Range(i, shuffled.Count);
-            shuffled[i] = shuffled[r]; shuffled[r] = temp;
+            pickedIndices.Add(Random.Range(0, availableDice.Count));
         }
 
-        int count = Mathf.Min(3, shuffled.Count);
-
-        for (int i = 0; i < count; i++)
+        foreach (int index in pickedIndices)
         {
-            Item diceChoice = shuffled[i];
+            selectedOptions.Add(availableDice[index]);
+        }
 
+        foreach (Item diceChoice in selectedOptions)
+        {
             GameObject card = CreateDefaultShopCard(diceChoice);
 
             // ★ 선택 카드 크기 조절 (너무 크지 않게)
@@ -212,6 +237,14 @@ public class ShopManager : MonoBehaviour
         }
     }
 
+    // 구매 버튼 클릭 시
+    void OnItemClicked(Item item)
+    {
+        pendingPurchase = item;
+        confirmPanel.SetActive(true);
+        confirmText.text = $"{item.itemName}\n구매하시겠습니까?";
+    }
+
     void ConfirmPurchase()
     {
         HideTooltip();
@@ -239,11 +272,20 @@ public class ShopManager : MonoBehaviour
                 else
                 {
                     bool added = GameData.Instance.AddUpgradeItem(pendingPurchase);
-                    if (added) pendingPurchase.isSold = true;
-                    else GameData.Instance.AddChips(cost);
+                    // 아이템 구매 후 즉시 매진 처리 (재구매 불가 아이템인 경우)
+                    if (added && pendingPurchase.type == ItemType.Artifact)
+                    {
+                        pendingPurchase.isSold = true;
+                    }
+                    else if (!added)
+                    {
+                        GameData.Instance.AddChips(cost); // 인벤토리 가득 참 등 실패 시 환불
+                    }
                 }
             }
-            GenerateWeeklyItems();
+
+            // 구매 후 상점 UI 갱신 (매진 표시 등을 위해)
+            DisplayWeeklyItems();
             if (UIManager.Instance != null) UIManager.Instance.UpdateAllUI();
         }
         confirmPanel.SetActive(false); pendingPurchase = null;
@@ -254,12 +296,27 @@ public class ShopManager : MonoBehaviour
         if (item.itemName == "Recharge Pack") GameData.Instance.rerollsLeft += 2;
         if (item.itemName == "Chaos Fund") { GameData.Instance.AddChips(20); GameData.Instance.RandomizeAllArtifacts(artifactItems); }
     }
+
     void CancelPurchase() { HideTooltip(); confirmPanel.SetActive(false); pendingPurchase = null; }
-    public void RefreshShop() { if (GameData.Instance.SpendChips(2)) GenerateWeeklyItems(); }
-    public int GetAdjustedCost(int price) { return price; }
+
+    public void RefreshShop()
+    {
+        if (GameData.Instance.SpendChips(2)) GenerateWeeklyItems();
+    }
+
+    public int GetAdjustedCost(int price)
+    {
+        // 할인 쿠폰 등 가격 조정 로직이 있다면 여기에 추가
+        if (GameData.Instance.HasItem("Discount Coupon")) return (int)(price * 0.8f);
+        return price;
+    }
 
     GameObject CreateDefaultShopCard(Item item)
     {
+        // ... (기존 CreateDefaultShopCard 코드 유지) ...
+        // 편의상 생략했습니다. 기존 코드를 그대로 사용하세요.
+        // 단, 아래 버튼 리스너 부분은 OnItemClicked를 사용하도록 유지해야 합니다.
+
         GameObject card = new GameObject($"Card_{item.itemName}");
         Image bg = card.AddComponent<Image>();
         bg.color = new Color(0.9f, 0.9f, 0.9f);
@@ -267,16 +324,28 @@ public class ShopManager : MonoBehaviour
         Button btn = card.AddComponent<Button>();
 
         bool isRebuyable = (item.itemName == "Random Dice Pack" || item.type == ItemType.Consumable || item.itemName == "Extra Heart");
-        if (!isRebuyable && item.isSold) btn.interactable = false;
-        else btn.onClick.AddListener(() => OnItemClicked(item));
 
+        // 이미 팔린 아티팩트는 버튼 비활성화
+        if (!isRebuyable && (item.isSold || GameData.Instance.HasItem(item.itemName)))
+        {
+            btn.interactable = false;
+        }
+        else
+        {
+            btn.onClick.AddListener(() => OnItemClicked(item));
+        }
+
+        // ... (나머지 UI 생성 코드: 아이콘, 이름, 가격 등) ...
+        // ...
+
+        // UI 생성 코드 복원 (필수 요소만 간략히 표시, 기존 코드 전체 사용 권장)
         RectTransform rect = card.GetComponent<RectTransform>();
-        rect.sizeDelta = new Vector2(140, 200); // 기본 크기
+        rect.sizeDelta = new Vector2(140, 200);
 
         ItemHoverTrigger trigger = card.AddComponent<ItemHoverTrigger>();
         trigger.targetItem = item;
 
-        // 아이콘
+        // ... (아이콘 생성)
         GameObject iconObj = new GameObject("Icon");
         iconObj.transform.SetParent(card.transform, false);
         Sprite loadedSprite = Resources.Load<Sprite>(item.itemIcon);
@@ -295,7 +364,7 @@ public class ShopManager : MonoBehaviour
         }
         iconObj.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 30);
 
-        // 이름
+        // ... (이름 생성)
         GameObject nameObj = new GameObject("Name");
         nameObj.transform.SetParent(card.transform, false);
         TextMeshProUGUI name = nameObj.AddComponent<TextMeshProUGUI>();
@@ -305,32 +374,29 @@ public class ShopManager : MonoBehaviour
         name.enableWordWrapping = true;
         name.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 110);
 
-        // 가격
+        // ... (가격 생성)
         GameObject priceObj = new GameObject("Price");
         priceObj.transform.SetParent(card.transform, false);
         TextMeshProUGUI price = priceObj.AddComponent<TextMeshProUGUI>();
-        price.text = $"{item.buyPrice} C";
+        price.text = $"{GetAdjustedCost(item.buyPrice)} C";
         price.fontSize = 24; price.color = Color.blue;
         price.alignment = TextAlignmentOptions.Center;
         price.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, -110);
 
-        if (item.isSold && !isRebuyable)
+
+        // 이미 보유 중이거나 팔린 경우 SOLD 표시
+        if (!isRebuyable && (item.isSold || GameData.Instance.HasItem(item.itemName)))
         {
             GameObject soldObj = new GameObject("Sold");
             soldObj.transform.SetParent(card.transform, false);
             TextMeshProUGUI soldTxt = soldObj.AddComponent<TextMeshProUGUI>();
             soldTxt.text = "SOLD"; soldTxt.color = Color.red; soldTxt.fontSize = 40;
+            soldTxt.alignment = TextAlignmentOptions.Center;
         }
 
         return card;
     }
 
-    void OnItemClicked(Item item)
-    {
-        pendingPurchase = item;
-        confirmPanel.SetActive(true);
-        confirmText.text = $"{item.itemName}\n구매하시겠습니까?";
-    }
 
     // ★ 3. 툴팁 위치 수정 (마우스 따라가거나 고정)
     public void ShowTooltip(Item item, Vector3 pos)
@@ -338,7 +404,7 @@ public class ShopManager : MonoBehaviour
         tooltipPanel.SetActive(true);
         tooltipName.text = item.itemName;
         tooltipDesc.text = item.description;
-        tooltipPrice.text = $"{item.buyPrice} C";
+        tooltipPrice.text = $"{GetAdjustedCost(item.buyPrice)} C";
 
         // 툴팁 위치를 중앙으로 고정하고 싶다면 아래 주석 해제
         // tooltipPanel.GetComponent<RectTransform>().anchoredPosition = Vector2.zero;

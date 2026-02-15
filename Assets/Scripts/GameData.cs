@@ -63,6 +63,7 @@ public class GameData : MonoBehaviour
 
     public int savedPot = 0;
     public bool isFirstRoll = true;
+    public string currentHandName = ""; // ★ UI 표시용 족보 이름 추가
 
     // ============================================
     // 3. 특수 효과 상태
@@ -124,6 +125,7 @@ public class GameData : MonoBehaviour
         feverMultiplier = 1f;
         shopRerollCost = 2;
         savedPot = 0;
+        currentHandName = "";
 
         pandoraMultiplier = 1.0f;
         lockedInventoryCount = 0;
@@ -138,7 +140,9 @@ public class GameData : MonoBehaviour
 
         isRolling = false; canSubmit = false; isProcessingTurn = false;
 
-        if (ShopManager.Instance != null) ShopManager.Instance.ResetShop();
+        // ShopManager 리셋 호출 (ShopManager가 있을 때만)
+        var shop = FindObjectOfType<ShopManager>(); // 순환 참조 방지
+        if (shop != null) shop.ResetShop();
     }
 
     public void StartNewTurn()
@@ -261,11 +265,28 @@ public class GameData : MonoBehaviour
         chips += amount;
     }
 
+    // ★ [핵심] ShopManager에서 사용하는 함수 추가
+    public bool HasItem(string searchName)
+    {
+        // 1. 아티팩트 목록 확인
+        if (artifactRelics.Exists(x => x.itemName == searchName)) return true;
+
+        // 2. 주사위 목록 확인 (선택 사항: 같은 종류 주사위 중복 허용하려면 이 부분 제거)
+        // if (currentDice.Exists(d => d.diceType == searchName)) return true;
+
+        return false;
+    }
+
     public bool AddUpgradeItem(Item item)
     {
         if (item.type == ItemType.Dice)
         {
-            DiceData newDice = new DiceData(currentDice.Count, Random.Range(1, 7), item.itemName);
+            // 주사위 획득 시: 현재 보유한 주사위 개수를 slotIndex로 사용하여 추가
+            // (실제 게임에서는 DiceSpawner가 빈 슬롯을 찾아 배치해 줄 것입니다)
+            int newSlotIndex = -1;
+            // 빈 슬롯 찾기 로직이 필요하다면 여기에 추가 (지금은 단순히 목록에만 추가)
+
+            DiceData newDice = new DiceData(-1, Random.Range(1, 7), item.itemName);
             currentDice.Add(newDice);
             Debug.Log($"🎲 [GameData] 주사위 획득 성공! : {item.itemName}");
             return true;
@@ -273,7 +294,7 @@ public class GameData : MonoBehaviour
 
         if (item.type == ItemType.Artifact)
         {
-            if (item.itemName != "Extra Heart" && artifactRelics.Exists(x => x.itemName == item.itemName)) return false;
+            if (item.itemName != "Extra Heart" && HasItem(item.itemName)) return false;
             if (artifactRelics.Count >= MaxInventorySize)
             {
                 Debug.Log("🔒 인벤토리 가득 참");
@@ -313,6 +334,15 @@ public class GameData : MonoBehaviour
     {
         if (dice != null)
         {
+            // 기존 위치에 있던 주사위 찾기 (교환 로직)
+            DiceData existingDice = currentDice.Find(d => d.slotIndex == newSlotIndex && d != dice);
+
+            if (existingDice != null)
+            {
+                // 자리 바꾸기
+                existingDice.slotIndex = dice.slotIndex;
+            }
+
             dice.slotIndex = newSlotIndex;
             Debug.Log($"🎲 주사위 이동 완료: {dice.diceType} -> 슬롯 {newSlotIndex}");
         }
@@ -320,8 +350,9 @@ public class GameData : MonoBehaviour
 
 } // End of GameData class
 
+
 // ============================================
-// ★ [수정됨] 주사위 데이터 클래스
+// 데이터 클래스 (기존 유지)
 // ============================================
 [System.Serializable]
 public class DiceData
@@ -332,15 +363,14 @@ public class DiceData
     public string diceType;
     public int roundsHeld;
 
-    // --- [특수 주사위 효과 계산을 위한 실시간 변수들] ---
-    public int finalScore;           // 복사된 눈금 등 최종 눈금
-    public int bonusScore;           // 고정 보너스 점수 (예: 얼음 주사위)
-    public float finalMult;          // 개인 배율 (예: 시간, 컴백 주사위)
-
-    public float externalBuffMult;   // 외부(주변 주사위)에서 받는 버프 누적
-    public float externalNerfMult;   // 외부(주변 주사위)에서 받는 너프 누적
-    public bool isImmuneToNerf;      // 너프 무시 여부 (강철 주사위)
-    public int totalScoreCalculated; // 모든 계산이 반영된 이 주사위의 최종 점수
+    // 실시간 계산 변수
+    public int finalScore;
+    public int bonusScore;
+    public float finalMult;
+    public float externalBuffMult;
+    public float externalNerfMult;
+    public bool isImmuneToNerf;
+    public int totalScoreCalculated;
 
     public DiceData(int index, int val, string type = "Normal")
     {
@@ -350,13 +380,12 @@ public class DiceData
         diceType = type;
         roundsHeld = 0;
 
-        // 초기값 설정
         finalScore = val;
         finalMult = 1.0f;
         bonusScore = 0;
         externalBuffMult = 1.0f;
         externalNerfMult = 1.0f;
-        isImmuneToNerf = (type == "Steel Dice"); // 강철 주사위는 기본 너프 면역
+        isImmuneToNerf = (type == "Steel Dice");
         totalScoreCalculated = 0;
     }
 }

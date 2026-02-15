@@ -1,97 +1,109 @@
-using UnityEngine;
+ï»¿using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
 
 public class DropSlot : MonoBehaviour, IDropHandler
 {
-    [Header("½½·Ô Á¤º¸")]
-    public int slotIndex;          // ÄÚµå°¡ ºÎ¿©ÇÏ´Â ½½·ÔÀÇ °íÀ¯ ¹øÈ£
-    public Image highlightImage;   // »öÄ¥ÇÒ ÀÚ½Ä ¿ÀºêÁ§Æ® (Highlight)
+    [Header("ìŠ¬ë¡¯ ì •ë³´")]
+    public int slotIndex = -1;
+    public GameObject diceObject;
 
-    [Header("ÇöÀç »óÅÂ")]
-    public GameObject diceObject;  // ÀÌ ½½·Ô À§¿¡ »ı¼ºµÈ ½ÇÁ¦ ÁÖ»çÀ§ ¿ÀºêÁ§Æ®
-    private DiceData currentDice;  // ÀÌ ½½·Ô¿¡ ÇÒ´çµÈ µ¥ÀÌÅÍ
+    [Header("í•˜ì´ë¼ì´íŠ¸ íš¨ê³¼")]
+    public Image highlightImage;
 
-    // ¡Ú »ö»ó ¼³Á¤: 0.7f·Î Åõ¸íµµ¸¦ Á¶ÀıÇÏ¿© °ËÀº ¹è°æ¿¡¼­µµ ¼±¸íÇÏ°Ô º¸ÀÌ°Ô ÇÔ
-    private Color buffColor = new Color(1f, 1f, 0f, 0.7f); // ¼±¸íÇÑ ³ë¶û
-    private Color nerfColor = new Color(1f, 0f, 0f, 0.7f); // ¼±¸íÇÑ »¡°­
-    private Color clearColor = new Color(0f, 0f, 0f, 0f);  // ¿ÏÀü Åõ¸í
+    // ìƒ‰ìƒ ì„¤ì • (0.7f ì•ŒíŒŒê°’)
+    private Color buffColor = new Color(1f, 1f, 0f, 0.7f);
+    private Color nerfColor = new Color(1f, 0f, 0f, 0.7f);
+    private Color clearColor = new Color(0f, 0f, 0f, 0f);
 
     void Awake()
     {
-        // 1. ÀÎ½ºÆåÅÍ¿¡¼­ ¿¬°á ¾ÈÇßÀ» °æ¿ì¸¦ ´ëºñÇØ ÀÚµ¿À¸·Î 'Highlight' ÀÚ½ÄÀ» Ã£À½
+        // í•˜ì´ë¼ì´íŠ¸ ì´ë¯¸ì§€ ì°¾ê¸° ë˜ëŠ” ìƒì„±
         if (highlightImage == null)
         {
             Transform child = transform.Find("Highlight");
             if (child != null) highlightImage = child.GetComponent<Image>();
+            else CreateHighlightImage();
         }
 
-        // 2. ÃÊ±â »óÅÂ´Â Ç×»ó Åõ¸íÇÏ°Ô ¼³Á¤
+        // ë§ˆìš°ìŠ¤ í´ë¦­ ê°€ë¡œì±„ê¸° ë°©ì§€
+        if (highlightImage != null) highlightImage.raycastTarget = false;
+
         ResetHighlight();
     }
 
-    // --- »ö»ó °ü¸® ÇÔ¼ö ---
+    void CreateHighlightImage()
+    {
+        GameObject highlightObj = new GameObject("Highlight");
+        highlightObj.transform.SetParent(transform, false);
 
+        highlightImage = highlightObj.AddComponent<Image>();
+        highlightImage.color = clearColor;
+        highlightImage.raycastTarget = false; // â˜… í•„ìˆ˜: ì£¼ì‚¬ìœ„ í´ë¦­ ë°©í•´ ê¸ˆì§€
+
+        RectTransform rect = highlightImage.GetComponent<RectTransform>();
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.sizeDelta = Vector2.zero;
+        rect.anchoredPosition = Vector2.zero;
+
+        // â˜… [ìˆ˜ì •] SetAsFirstSibling() ì œê±°! 
+        // ë°°ê²½ ì´ë¯¸ì§€ë³´ë‹¤ ìœ„ì— ê·¸ë ¤ì§€ë„ë¡ ê·¸ëƒ¥ ë‘¡ë‹ˆë‹¤. (ì£¼ì‚¬ìœ„ëŠ” ë‚˜ì¤‘ì— ìƒì„±ë˜ë‹ˆ ìì—°ìŠ¤ëŸ½ê²Œ ì œì¼ ìœ„ë¡œ ê°)
+    }
+
+    // --- ìƒ‰ìƒ ë³€ê²½ ---
     public void SetSlotColor(Color color)
     {
-        if (highlightImage != null) highlightImage.color = color;
+        if (highlightImage != null)
+        {
+            highlightImage.color = color;
+            highlightImage.enabled = true;
+        }
     }
 
     public void SetBuffHighlight() => SetSlotColor(buffColor);
     public void SetNerfHighlight() => SetSlotColor(nerfColor);
     public void ResetHighlight() => SetSlotColor(clearColor);
-    public void ResetColor() => ResetHighlight();
 
-    // --- ÁÖ»çÀ§ »óÈ£ÀÛ¿ë ÇÔ¼ö ---
+    // DraggableDice í˜¸í™˜ìš©
+    public void SetBuffHighlight(bool isVisible, Color color)
+    {
+        if (isVisible) SetSlotColor(color);
+        else ResetHighlight();
+    }
+
+    // --- ì£¼ì‚¬ìœ„ ê´€ë¦¬ ---
+    public void SetDice(DiceData data)
+    {
+        if (diceObject != null)
+        {
+            var draggable = diceObject.GetComponent<DraggableDice>();
+            if (draggable != null) draggable.Initialize(data);
+        }
+    }
+
+    public void ClearSlot()
+    {
+        if (diceObject != null && diceObject.scene.name != null)
+        {
+            Destroy(diceObject);
+            diceObject = null;
+        }
+        ResetHighlight();
+    }
 
     public void OnDrop(PointerEventData eventData)
     {
-        // µå·¡±× ÁßÀÎ ¿ÀºêÁ§Æ®¸¦ °¡Á®¿È
         GameObject droppedObject = eventData.pointerDrag;
         if (droppedObject != null)
         {
             DraggableDice draggable = droppedObject.GetComponent<DraggableDice>();
             if (draggable != null)
             {
-                // µ¥ÀÌÅÍ ¾÷µ¥ÀÌÆ® ¹× À§Ä¡ ÀÌµ¿
-                DiceData dice = draggable.GetDiceData();
-                GameData.Instance.MoveDice(dice, slotIndex);
-
-                // È¿°ú Àç°è»ê ¹× UI ÀüÃ¼ »õ·Î°íÄ§ (ÀÌ¶§ »ö±òµµ ´Ù½Ã Ä¥ÇØÁü)
+                GameData.Instance.MoveDice(draggable.GetDiceData(), slotIndex);
                 DiceEffectManager.ApplyAllDiceEffects();
                 UIManager.Instance.UpdateAllUI();
             }
         }
     }
-
-    public void SetDice(DiceData dice)
-    {
-        currentDice = dice;
-        // ÁÖ»çÀ§ ½Ã°¢È­ ·ÎÁ÷ (ÇÊ¿ä½Ã Ãß°¡)
-        if (diceObject != null)
-        {
-            DraggableDice draggable = diceObject.GetComponent<DraggableDice>();
-            if (draggable != null) draggable.Initialize(dice);
-        }
-    }
-
-    public void ClearSlot()
-    {
-        currentDice = null;
-
-        // ¡Ú [Áß¿ä] Destroy ¿¡·¯ ¹æÁö¿ë ¾ÈÀüÀåÄ¡
-        // ÇÁ·ÎÁ§Æ® Ã¢ÀÇ ¿øº»(Asset)ÀÌ ¾Æ´Ï¶ó ¾À¿¡ ÀÖ´Â º¹Á¦º»(Instance)ÀÏ ¶§¸¸ ÆÄ±«
-        if (diceObject != null)
-        {
-            if (diceObject.scene.name != null) // ¾À¿¡ Á¸ÀçÇÏ´Â ¿ÀºêÁ§Æ®ÀÎÁö È®ÀÎ
-            {
-                Destroy(diceObject);
-            }
-            diceObject = null;
-        }
-
-        ResetHighlight();
-    }
-
-    public bool IsEmpty() => currentDice == null;
 }

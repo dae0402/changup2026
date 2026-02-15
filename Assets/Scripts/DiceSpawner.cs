@@ -5,63 +5,49 @@ using System.Collections.Generic;
 
 public class DiceSpawner : MonoBehaviour
 {
-    // ============================================
-    // 인스펙터 설정
-    // ============================================
     [Header("필수 연결")]
-    public Transform boardParent;           // 슬롯들이 생성될 부모 패널 (Grid가 붙을 곳)
-    public GameObject slotPrefab;           // 슬롯 프리팹
-    public GameObject dicePrefab;           // 주사위 프리팹
+    public Transform boardParent;
+    public GameObject slotPrefab;
+    public GameObject dicePrefab;
 
-    [Header("생성 개수")]
-    public int rows = 3;                    // 행 (세로 줄 수)
-    public int columns = 5;                 // 열 (가로 줄 수)
+    [Header("생성 설정")]
+    public int rows = 3;
+    public int columns = 5;
+
+    [Header("그리드 레이아웃")]
+    public Vector2 cellSize = new Vector2(100f, 100f);
+    public Vector2 spacing = new Vector2(15f, 30f);
+    public int paddingLeft = 0;
+    public int paddingTop = 0;
 
     [Header("리소스")]
     public Sprite[] diceSprites;
 
-    // 내부 데이터
     private GameObject[] slots;
-    private Dictionary<int, GameObject> activeDice = new Dictionary<int, GameObject>();
 
     void Start()
     {
-        if (boardParent == null)
-        {
-            Debug.LogError("❌ Board Parent가 연결되지 않았습니다! 인스펙터를 확인하세요.");
-            return;
-        }
-        CreateBoard();
+        if (boardParent != null) CreateBoard();
     }
 
     public void CreateBoard()
     {
-        // 1. 기존 슬롯 청소
-        foreach (Transform child in boardParent)
-        {
-            Destroy(child.gameObject);
-        }
-
-        // 2. UIManager 리스트 초기화 (색칠 대상 명단 비우기)
-        if (UIManager.Instance != null)
-        {
-            UIManager.Instance.allSlots.Clear();
-        }
+        foreach (Transform child in boardParent) Destroy(child.gameObject);
+        if (UIManager.Instance != null) UIManager.Instance.allSlots.Clear();
 
         int totalSlots = rows * columns;
         slots = new GameObject[totalSlots];
 
-        // 3. Grid Layout Group 자동 설정
         GridLayoutGroup grid = boardParent.GetComponent<GridLayoutGroup>();
         if (grid == null) grid = boardParent.gameObject.AddComponent<GridLayoutGroup>();
 
-        grid.cellSize = new Vector2(100f, 100f);
-        grid.spacing = new Vector2(15f, 30f);
+        grid.cellSize = cellSize;
+        grid.spacing = spacing;
+        grid.padding = new RectOffset(paddingLeft, 0, paddingTop, 0);
         grid.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
         grid.constraintCount = columns;
         grid.childAlignment = TextAnchor.MiddleCenter;
 
-        // 4. 슬롯 생성 및 번호 부여
         for (int i = 0; i < totalSlots; i++)
         {
             GameObject newSlot = Instantiate(slotPrefab, boardParent);
@@ -72,115 +58,120 @@ public class DiceSpawner : MonoBehaviour
             if (slotScript != null)
             {
                 slotScript.slotIndex = i;
-                // ★ UIManager 명단에 등록해야 색깔이 칠해집니다.
-                if (UIManager.Instance != null)
-                {
-                    UIManager.Instance.allSlots.Add(slotScript);
-                }
+                if (UIManager.Instance != null) UIManager.Instance.allSlots.Add(slotScript);
             }
         }
-        Debug.Log($"✅ 보드 생성 완료! (슬롯 {totalSlots}개)");
     }
 
-    // ============================================
-    // 주사위 생성 및 슬롯 연결
-    // ============================================
+    // ★ 요청하신 코드: 기존 것 파괴 후 새로 생성
     public void SpawnDice(int slotIndex, int value, bool isSpecial = false)
     {
         if (slots == null || slotIndex < 0 || slotIndex >= slots.Length) return;
 
-        // 이미 해당 위치에 주사위가 있다면 안전하게 제거
-        if (activeDice.ContainsKey(slotIndex)) RemoveDice(slotIndex);
+        Transform slotTransform = slots[slotIndex].transform;
 
-        GameObject dice;
-        // 주사위 인스턴스 생성 (복제본 생성)
+        // 1. 기존 주사위가 있으면 무조건 파괴 (재활용 X -> 사라짐 연출 가능)
+        if (slotTransform.childCount > 0)
+        {
+            foreach (Transform child in slotTransform)
+            {
+                Destroy(child.gameObject);
+            }
+        }
+
+        // 2. 항상 새로운 주사위 생성
+        GameObject dice = null;
         if (dicePrefab != null)
         {
-            dice = Instantiate(dicePrefab, slots[slotIndex].transform);
+            dice = Instantiate(dicePrefab, slotTransform);
         }
         else
         {
-            dice = CreateDefaultDice(value);
-            dice.transform.SetParent(slots[slotIndex].transform, false);
+            dice = CreateDefaultDice(value, slotTransform);
         }
 
-        // ★ [핵심 수정] 슬롯 스크립트에게 생성된 주사위 오브젝트를 알려줌
-        // 이렇게 해야 나중에 DropSlot.ClearSlot()에서 '원본'이 아닌 '복제본'을 파괴합니다.
-        DropSlot currentSlotScript = slots[slotIndex].GetComponent<DropSlot>();
-        if (currentSlotScript != null)
-        {
-            currentSlotScript.diceObject = dice;
-        }
+        // 3. DropSlot 스크립트 연결
+        DropSlot currentSlot = slots[slotIndex].GetComponent<DropSlot>();
+        if (currentSlot != null) currentSlot.diceObject = dice;
 
-        // 위치 및 크기 정렬
+        // 4. 위치 및 크기 강제 초기화
         dice.transform.localPosition = Vector3.zero;
         dice.transform.localScale = Vector3.one;
+        dice.transform.localRotation = Quaternion.identity;
 
+        // 5. CanvasGroup 자동 추가 (드래그 에러 방지)
+        CanvasGroup cg = dice.GetComponent<CanvasGroup>();
+        if (cg == null) cg = dice.AddComponent<CanvasGroup>();
+        cg.blocksRaycasts = true;
+
+        // 6. 시각 효과(이미지/숫자) 설정
         SetupDiceVisual(dice, value);
 
-        // 클릭 이벤트 연결
+        // 7. 데이터 설정
+        DraggableDice draggable = dice.GetComponent<DraggableDice>();
+        if (draggable == null) draggable = dice.AddComponent<DraggableDice>();
+        draggable.Initialize(new DiceData(slotIndex, value));
+
+        // 8. 클릭 이벤트 연결
         Button btn = dice.GetComponent<Button>();
         if (btn == null) btn = dice.AddComponent<Button>();
         btn.onClick.RemoveAllListeners();
         btn.onClick.AddListener(() => OnDiceClicked(slotIndex));
 
-        activeDice[slotIndex] = dice;
-        UpdateDiceVisual(slotIndex, false);
+        // 9. 선택 효과 끄기
+        UpdateDiceVisual(dice, false);
     }
 
+    // 특정 슬롯 비우기 (리롤 전 이동 위해 필요)
     public void RemoveDice(int slotIndex)
     {
-        if (activeDice.ContainsKey(slotIndex))
+        if (slotIndex >= 0 && slotIndex < slots.Length)
         {
-            // 1. 실제 주사위 오브젝트 파괴
-            if (activeDice[slotIndex] != null)
-            {
-                Destroy(activeDice[slotIndex]);
-            }
-            activeDice.Remove(slotIndex);
+            Transform slotTransform = slots[slotIndex].transform;
+            foreach (Transform child in slotTransform) Destroy(child.gameObject);
 
-            // 2. 슬롯의 참조 변수도 비워줌
-            if (slots[slotIndex] != null)
-            {
-                DropSlot ds = slots[slotIndex].GetComponent<DropSlot>();
-                if (ds != null) ds.diceObject = null;
-            }
+            DropSlot ds = slots[slotIndex].GetComponent<DropSlot>();
+            if (ds != null) ds.diceObject = null;
         }
     }
 
     public void ClearAllDice()
     {
-        // 딕셔너리를 돌면서 모든 주사위 제거
-        List<int> keys = new List<int>(activeDice.Keys);
-        foreach (int key in keys)
-        {
-            RemoveDice(key);
-        }
-        activeDice.Clear();
+        for (int i = 0; i < slots.Length; i++) RemoveDice(i);
     }
 
     void SetupDiceVisual(GameObject dice, int value)
     {
-        // 주사위 배경색 흰색 강제
         Image bgImg = dice.GetComponent<Image>();
         if (bgImg != null) bgImg.color = Color.white;
 
-        if (diceSprites != null && diceSprites.Length >= 6)
+        if (diceSprites != null && value > 0 && value <= diceSprites.Length)
         {
             if (bgImg != null) bgImg.sprite = diceSprites[value - 1];
         }
         else
         {
             TextMeshProUGUI text = dice.GetComponentInChildren<TextMeshProUGUI>();
-            if (text != null) text.text = value.ToString();
+            if (text == null)
+            {
+                GameObject textObj = new GameObject("ValueText");
+                textObj.transform.SetParent(dice.transform, false);
+                text = textObj.AddComponent<TextMeshProUGUI>();
+                text.GetComponent<RectTransform>().anchorMin = Vector2.zero;
+                text.GetComponent<RectTransform>().anchorMax = Vector2.one;
+                text.GetComponent<RectTransform>().sizeDelta = Vector2.zero;
+            }
+            text.text = value.ToString();
+            text.color = Color.black;
+            text.fontSize = 50f;
+            text.alignment = TextAlignmentOptions.Center;
+            text.fontStyle = FontStyles.Bold;
         }
     }
 
-    public void UpdateDiceVisual(int slotIndex, bool isSelected)
+    public void UpdateDiceVisual(GameObject dice, bool isSelected)
     {
-        if (!activeDice.ContainsKey(slotIndex)) return;
-        GameObject dice = activeDice[slotIndex];
-
+        if (dice == null) return;
         Outline outline = dice.GetComponent<Outline>();
         if (outline == null) outline = dice.AddComponent<Outline>();
 
@@ -192,18 +183,26 @@ public class DiceSpawner : MonoBehaviour
         }
     }
 
-    void OnDiceClicked(int slotIndex)
+    public void UpdateDiceVisual(int slotIndex, bool isSelected)
     {
-        if (GameManager.Instance != null)
-            GameManager.Instance.ToggleDiceSelection(slotIndex);
+        if (slotIndex >= 0 && slotIndex < slots.Length)
+        {
+            Transform slotTransform = slots[slotIndex].transform;
+            if (slotTransform.childCount > 0)
+                UpdateDiceVisual(slotTransform.GetChild(0).gameObject, isSelected);
+        }
     }
 
-    GameObject CreateDefaultDice(int value)
+    void OnDiceClicked(int slotIndex)
+    {
+        if (GameManager.Instance != null) GameManager.Instance.ToggleDiceSelection(slotIndex);
+    }
+
+    GameObject CreateDefaultDice(int value, Transform parent)
     {
         GameObject dice = new GameObject($"Dice_{value}");
+        dice.transform.SetParent(parent, false);
         dice.AddComponent<Image>();
-        RectTransform rect = dice.GetComponent<RectTransform>();
-        rect.sizeDelta = new Vector2(90f, 90f);
         return dice;
     }
 }
