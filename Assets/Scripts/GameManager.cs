@@ -53,7 +53,6 @@ public class GameManager : MonoBehaviour
 
     private IEnumerator RollDiceCoroutine()
     {
-        // 1. 코스트 처리
         bool hasTimeCapsule = GameData.Instance.GetAllActiveUpgrades().Exists(x => x.itemName == "Time Capsule");
         int baseRerolls = 3;
         if (hasTimeCapsule) GameData.Instance.rerollsLeft += baseRerolls;
@@ -68,10 +67,9 @@ public class GameManager : MonoBehaviour
         UIManager.Instance.UpdateAllUI();
         UIManager.Instance.UpdateButtons();
 
-        // 2. 주사위 생성 (전체 새로고침)
+        // 굴리기 로직 실행
         yield return StartCoroutine(ProcessSpawnAndRoll(true));
 
-        // 3. 결과 확인
         DiceLogic.HandResult result = EvaluateCurrentHand();
 
         if (result.isGlitch)
@@ -86,24 +84,17 @@ public class GameManager : MonoBehaviour
         }
     }
 
-    // ★ [핵심] 글리치 효과: 주사위가 싹 사라졌다가 다시 나옵니다.
     private IEnumerator GlitchRoutine()
     {
         bool keepGlitching = true;
         while (keepGlitching)
         {
-            // 1. 대기 (연출)
             yield return new WaitForSeconds(0.8f);
-
-            // 2. 점수 누적
             storedScore += GameData.Instance.currentHandScore;
             comboCount++;
-            Debug.Log($"👾 글리치 반복 {comboCount}회차 | 누적 점수: {storedScore}");
 
-            // 3. 주사위 싹 지우고 다시 랜덤 생성 (ProcessSpawnAndRoll이 ClearAllDice 포함)
             yield return StartCoroutine(ProcessSpawnAndRoll(false));
 
-            // 4. 다시 검사
             DiceLogic.HandResult result = EvaluateCurrentHand();
             if (!result.isGlitch) keepGlitching = false;
         }
@@ -114,16 +105,24 @@ public class GameManager : MonoBehaviour
 
     private IEnumerator ProcessSpawnAndRoll(bool isInitial)
     {
-        // ★ 기존 주사위 싹 지우기 (사라지는 연출)
         diceSpawner.ClearAllDice();
         GameData.Instance.currentDice.Clear();
 
-        // ★ 랜덤 슬롯 뽑기
+        // ★ 첫 굴리기일 때만 내 덱(주머니)을 흔들어서 섞어줍니다.
+        if (isInitial)
+        {
+            GameData.Instance.ShuffleDeck(dicePerRoll);
+        }
+
         List<int> slots = GetRandomSlots(dicePerRoll);
         foreach (int slot in slots)
         {
             int val = GetRandomDiceValue();
-            GameData.Instance.currentDice.Add(new DiceData(slot, val));
+
+            // ★ 중요: 무조건 Normal이 아니라, 주머니에서 하나씩 꺼냅니다!
+            string drawnDiceType = GameData.Instance.DrawDiceFromDeck(dicePerRoll);
+
+            GameData.Instance.currentDice.Add(new DiceData(slot, val, drawnDiceType));
         }
 
         // 매직 다이스 보정
@@ -133,21 +132,18 @@ public class GameManager : MonoBehaviour
                 GameData.Instance.currentDice[0].value = 6;
         }
 
-        // ★ 실제 생성 (SpawnDice가 항상 새로 만듦)
+        // 실제 생성
         foreach (var dice in GameData.Instance.currentDice)
         {
             diceSpawner.SpawnDice(dice.slotIndex, dice.value, isInitial);
         }
 
-        yield return new WaitForSeconds(0.3f); // 생성 후 잠깐 대기
+        yield return new WaitForSeconds(0.3f);
 
         DiceEffectManager.ApplyAllDiceEffects();
         UIManager.Instance.UpdateAllUI();
     }
 
-    // ============================================
-    // ★ [핵심 수정] 리롤 시 랜덤 이동 로직
-    // ============================================
     public void RerollSelectedDice()
     {
         if (GameData.Instance.rerollsLeft <= 0) return;
@@ -166,35 +162,32 @@ public class GameManager : MonoBehaviour
         GameData.Instance.isRolling = true;
         UIManager.Instance.UpdateButtons();
 
-        // 1. 선택된 주사위들을 일단 화면과 데이터에서 제거
         foreach (var d in toReroll)
         {
-            diceSpawner.RemoveDice(d.slotIndex); // 화면에서 지움
-            GameData.Instance.currentDice.Remove(d); // 데이터에서 뺌
+            diceSpawner.RemoveDice(d.slotIndex);
+            GameData.Instance.currentDice.Remove(d);
         }
 
-        // 2. 남은 주사위들이 차지한 자리 파악
         List<int> occupiedSlots = GameData.Instance.currentDice.Select(d => d.slotIndex).ToList();
 
-        // 3. 지운 개수만큼 새로운 랜덤 자리에 생성
         foreach (var oldDice in toReroll)
         {
-            int newSlot = GetAvailableSlot(occupiedSlots); // 빈자리 찾기
-            occupiedSlots.Add(newSlot); // 예약
+            int newSlot = GetAvailableSlot(occupiedSlots);
+            occupiedSlots.Add(newSlot);
 
             int newVal = GetRandomDiceValue();
 
-            // 데이터 추가
-            DiceData newDiceData = new DiceData(newSlot, newVal);
+            // ★ 리롤을 할 때도 버려진 자리만큼 다시 주머니에서 꺼냅니다!
+            string newType = GameData.Instance.DrawDiceFromDeck(dicePerRoll);
+
+            DiceData newDiceData = new DiceData(newSlot, newVal, newType);
             GameData.Instance.currentDice.Add(newDiceData);
 
-            // ★ 새로운 자리에 생성!
             diceSpawner.SpawnDice(newSlot, newVal, false);
 
-            yield return new WaitForSeconds(0.1f); // 하나씩 나오는 연출
+            yield return new WaitForSeconds(0.1f);
         }
 
-        // 4. 결과 계산
         DiceLogic.HandResult result = EvaluateCurrentHand();
         if (result.isGlitch) yield return StartCoroutine(GlitchRoutine());
         else
@@ -231,7 +224,8 @@ public class GameManager : MonoBehaviour
         if (d != null)
         {
             d.isSelected = !d.isSelected;
-            diceSpawner.UpdateDiceVisual(slotIndex, d.isSelected);
+            // 선택 효과도 색상 로직에 맞춰 갱신
+            diceSpawner.UpdateDiceVisual(slotIndex, d);
         }
     }
 
@@ -276,10 +270,18 @@ public class GameManager : MonoBehaviour
     private List<int> GetRandomSlots(int count) => Enumerable.Range(0, totalSlots).OrderBy(x => Random.value).Take(count).ToList();
     private int GetRandomDiceValue() => GameData.Instance.availableDiceValues[Random.Range(0, GameData.Instance.availableDiceValues.Count)];
 
-    // ★ 빈 슬롯 찾기 함수
     private int GetAvailableSlot(List<int> used)
     {
         var avail = Enumerable.Range(0, totalSlots).Except(used).ToList();
         return avail.Count > 0 ? avail[Random.Range(0, avail.Count)] : 0;
+    }
+
+    // 이펙트 재적용 후 비주얼 갱신용 도우미 함수 (DiceEffectManager에서 호출됨)
+    public void RefreshAllDiceVisuals()
+    {
+        foreach (var diceData in GameData.Instance.currentDice)
+        {
+            diceSpawner.UpdateDiceVisual(diceData.slotIndex, diceData);
+        }
     }
 }
