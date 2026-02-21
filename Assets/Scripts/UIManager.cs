@@ -40,7 +40,7 @@ public class UIManager : MonoBehaviour
     public TextMeshProUGUI savedPotText;
     public TextMeshProUGUI currentScoreText;
     public TextMeshProUGUI feverMultText;
-    public TextMeshProUGUI totalScoreText;
+    public TextMeshProUGUI totalScoreText; // 노란색 큰 박스
 
     [Header("버튼들")]
     public Button rollButton;
@@ -60,7 +60,6 @@ public class UIManager : MonoBehaviour
     [Header("★ 주사위 슬롯 데이터")]
     public List<DropSlot> allSlots = new List<DropSlot>();
 
-    // ★ 색상 설정: 0.7f 알파값으로 검은 배경에서도 잘 보이게 설정
     private Color buffColor = new Color(1f, 1f, 0f, 0.7f); // 노란색 (Buff)
     private Color nerfColor = new Color(1f, 0f, 0f, 0.7f); // 빨간색 (Nerf)
 
@@ -82,7 +81,6 @@ public class UIManager : MonoBehaviour
         UpdateInventory();
         UpdateDiceUI();
 
-        // ★ 주사위 위치에 따라 바닥 색칠하기 (가장 마지막에 수행)
         UpdateSlotColors();
     }
 
@@ -90,14 +88,10 @@ public class UIManager : MonoBehaviour
     {
         if (GameData.Instance == null || allSlots.Count == 0) return;
 
-        // ★ [핵심] 여기서 슬롯을 강제로 비우면(ClearSlot) 주사위가 사라집니다. 
-        // DiceSpawner가 만든 주사위를 그대로 두고, 데이터만 매칭합니다.
-
         foreach (DiceData dice in GameData.Instance.currentDice)
         {
             if (dice.slotIndex >= 0 && dice.slotIndex < allSlots.Count)
             {
-                // DiceSpawner가 이미 만들어둔 주사위와 데이터를 연결만 해줍니다.
                 allSlots[dice.slotIndex].SetDice(dice);
             }
         }
@@ -107,23 +101,19 @@ public class UIManager : MonoBehaviour
     {
         if (GameData.Instance == null || allSlots.Count == 0) return;
 
-        // 1. 모든 슬롯의 하이라이트 초기화 (투명하게)
         foreach (var slot in allSlots)
         {
             if (slot != null) slot.ResetHighlight();
         }
 
-        // 2. 특수 주사위 타입 확인 후 주변 색칠
         foreach (DiceData dice in GameData.Instance.currentDice)
         {
             string typeName = dice.diceType.Trim().ToLower();
 
-            // 버프 계열: 십자(+) 범위 색칠
             if (typeName == "buff dice" || typeName == "mirror dice" || typeName == "chameleon dice")
             {
                 PaintNeighbors(dice.slotIndex, "cross", buffColor);
             }
-            // 스프링 주사위: 십자(버프) + 대각선 4칸(너프)
             else if (typeName == "spring dice")
             {
                 PaintNeighbors(dice.slotIndex, "cross", buffColor);
@@ -132,10 +122,9 @@ public class UIManager : MonoBehaviour
         }
     }
 
-    // ★ [핵심] 가로 5칸 기준으로 주변 인덱스를 찾는 함수
     void PaintNeighbors(int centerIndex, string shape, Color color)
     {
-        int columns = 5; // 우리 게임의 가로 칸수
+        int columns = 5;
         int row = centerIndex / columns;
         int col = centerIndex % columns;
 
@@ -147,18 +136,15 @@ public class UIManager : MonoBehaviour
             int c = i % columns;
             bool isTarget = false;
 
-            // 자기 자신은 제외
             if (i == centerIndex) continue;
 
             if (shape == "cross")
             {
-                // 상하좌우 1칸 거리 체크
                 if ((r == row && Mathf.Abs(c - col) == 1) || (c == col && Mathf.Abs(r - row) == 1))
                     isTarget = true;
             }
             else if (shape == "3x3_outer")
             {
-                // 3x3 범위 중 십자 범위를 제외한 대각선 4칸만 체크
                 bool in3x3 = Mathf.Abs(r - row) <= 1 && Mathf.Abs(c - col) <= 1;
                 bool isCross = (r == row || c == col);
                 if (in3x3 && !isCross) isTarget = true;
@@ -171,8 +157,6 @@ public class UIManager : MonoBehaviour
         }
     }
 
-    // --- GameManager 연결 함수들 ---
-
     public void UpdateStats()
     {
         if (GameData.Instance == null) return;
@@ -183,16 +167,27 @@ public class UIManager : MonoBehaviour
         if (shopChipsText != null) shopChipsText.text = GameData.Instance.chips.ToString();
     }
 
+    // ★ [핵심 수정됨] 점수 이중 곱셈 버그 해결 및 표시 로직 정상화
     public void UpdateGamePanel()
     {
         if (GameData.Instance == null) return;
-        if (savedPotText) savedPotText.text = GameData.Instance.savedPot.ToString();
-        if (currentScoreText) currentScoreText.text = GameData.Instance.currentHandScore.ToString();
-        if (feverMultText) feverMultText.text = $"x {GameData.Instance.feverMultiplier:F1}";
-        if (totalScoreText) totalScoreText.text = GameData.Instance.totalScore.ToString();
 
-        // ★ [수정] GameData에 변수가 없다면 이 줄을 지우세요. 
-        // if (handNameText) handNameText.text = GameData.Instance.currentHandName;
+        if (savedPotText) savedPotText.text = GameData.Instance.savedPot.ToString();
+
+        float mult = GameData.Instance.feverMultiplier > 0 ? GameData.Instance.feverMultiplier : 1f;
+
+        // 1. 배율 표시 (FeverMult)
+        if (feverMultText) feverMultText.text = $"x {mult:F1}";
+
+        // 2. 기본 점수 표시 (Current) 
+        // -> 최종 점수에서 배율을 다시 나눠서 '곱해지기 전의 순수 주사위 합'을 보여줍니다.
+        int rawScore = Mathf.RoundToInt(GameData.Instance.currentHandScore / mult);
+        if (currentScoreText) currentScoreText.text = rawScore.ToString();
+
+        // 3. 노란색 큰 박스 (Total) 
+        // -> 배율을 또 곱하지 않고, 이미 계산이 완벽하게 끝난 최종 점수(currentHandScore)를 그대로 사용합니다!
+        int estimatedWin = GameData.Instance.currentHandScore + GameData.Instance.savedPot;
+        if (totalScoreText) totalScoreText.text = estimatedWin.ToString();
     }
 
     public void UpdateButtons()
@@ -235,12 +230,9 @@ public class UIManager : MonoBehaviour
     public void DisplayHandResult(string handName, float multiplier)
     {
         if (handNameText) handNameText.text = handName;
-        if (handMultiplierText) handMultiplierText.text = $"x{multiplier:F1}";
     }
 
     public void ShowScorePopup(int score) => Debug.Log($"💰 {score}점 획득!");
-
-    // --- 화면 전환 및 내비게이션 ---
 
     public void ShowTitleScreen()
     {
@@ -288,8 +280,6 @@ public class UIManager : MonoBehaviour
             }
         }
     }
-
-    // --- 이벤트 리스너 ---
 
     void OnRollButtonClicked() { if (GameManager.Instance != null) GameManager.Instance.RollDice(); }
     void OnRerollButtonClicked() { if (GameManager.Instance != null) GameManager.Instance.RerollSelectedDice(); }

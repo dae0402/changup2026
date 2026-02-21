@@ -29,7 +29,7 @@ public class DiceSpawner : MonoBehaviour
     public Color selectionColor = Color.cyan;
 
     [Header("효과 텍스트 설정")]
-    public Vector2 effectTextOffset = new Vector2(0f, 40f);
+    public Vector2 effectTextOffset = new Vector2(0f, 60f);
 
     [Header("주사위 타입별 배경 색상")]
     public Color normalBgColor = Color.white;

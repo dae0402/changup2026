@@ -219,24 +219,38 @@ public class GameData : MonoBehaviour
 
     public bool HasItem(string searchName) => artifactRelics.Exists(x => x.itemName == searchName);
 
+    // ★ [핵심 변경] 구매 시 수량 제한 및 오류 로그 강화
     public bool AddUpgradeItem(Item item)
     {
         if (item.type == ItemType.Dice)
         {
-            // ★ 수정됨: 상점에서 사면 내 '주머니'에 들어갑니다!
+            // 주사위는 최대 5개까지만 보유 가능
+            if (ownedSpecialDice.Count >= 5)
+            {
+                Debug.LogWarning("🎲 주사위 주머니가 꽉 찼습니다! (최대 5개)");
+                return false;
+            }
+
             ownedSpecialDice.Add(item.itemName);
-            Debug.Log($"🎲 [GameData] 주머니에 특수 주사위 추가됨! : {item.itemName}");
+            Debug.Log($"🎲 [GameData] 주머니에 특수 주사위 추가됨! : {item.itemName} (현재: {ownedSpecialDice.Count}/5)");
             return true;
         }
 
         if (item.type == ItemType.Artifact)
         {
             if (item.itemName != "Extra Heart" && HasItem(item.itemName)) return false;
-            if (artifactRelics.Count >= MaxInventorySize) return false;
+
+            // 유물은 MaxInventorySize (기본 8개)까지만 보유 가능
+            if (artifactRelics.Count >= MaxInventorySize)
+            {
+                Debug.LogWarning("🎒 유물 인벤토리가 꽉 찼습니다! (최대 8개)");
+                return false;
+            }
 
             artifactRelics.Add(item);
             if (item.itemName == "Overload Gear") { maxHands--; if (handsLeft > maxHands) handsLeft = maxHands; }
             if (item.itemName == "Credit Card") hasCreditCard = true;
+            Debug.Log($"🎒 [GameData] 유물 획득! : {item.itemName} (현재: {artifactRelics.Count}/{MaxInventorySize})");
             return true;
         }
         return false;
