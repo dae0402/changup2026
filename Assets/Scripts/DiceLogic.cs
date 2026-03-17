@@ -17,7 +17,6 @@ public class DiceLogic : MonoBehaviour
         HighCard, OnePair, TwoPair, ThreeOfAKind, Straight, FullHouse, FourOfAKind, FiveOfAKind
     }
 
-    // ★ [수정됨] 유니티 경고(new MonoBehaviour 금지)를 해결하기 위해 static readonly로 변경
     private static readonly Dictionary<HandType, float> handMultipliers = new Dictionary<HandType, float>
     {
         { HandType.HighCard, 1.0f }, { HandType.OnePair, 2.0f }, { HandType.TwoPair, 3.0f },
@@ -37,20 +36,31 @@ public class DiceLogic : MonoBehaviour
     {
         if (dice == null || dice.Count == 0) return new HandResult { handName = "없음", multiplier = 0, totalScore = 0, isGlitch = false };
 
-        // 1. 주사위 개별 이펙트 적용 (버프/너프 등)
-        DiceEffectManager.ApplyAllDiceEffects();
+        // =======================================================
+        // ★ [보스 2] 조용한 그림자: 특수 주사위 이펙트(버프/너프) 봉인
+        // =======================================================
+        bool skipEffects = GameData.Instance != null && GameData.Instance.isBossStage && GameData.Instance.currentBossName == "조용한 그림자 (Silent Shadow)";
+        if (!skipEffects)
+        {
+            // 평소에는 이펙트 정상 발동
+            DiceEffectManager.ApplyAllDiceEffects();
+        }
+        else
+        {
+            Debug.Log("🌑 [조용한 그림자] 보스 기믹 발동! 주사위 이펙트가 무효화됩니다.");
+            // 이펙트가 무효화되므로 현재 눈금을 최종 점수로 확정지어줌
+            foreach (var d in dice) d.finalScore = d.value;
+        }
 
         // 2. 글로벌 아티팩트(유물) 효과 먼저 적용
         ApplyGlobalArtifacts(dice);
 
-        // 3. 족보 판별 (★ 원래 눈금이 아니라, 카멜레온 등으로 변신한 눈금 기준으로 검사!)
+        // 3. 족보 판별 (원래 눈금이 아니라 변신한 눈금 기준)
         Dictionary<int, int> counts = CountDiceValues(dice);
         HandType hand = DetermineHandType(dice, counts);
 
-        // static 딕셔너리로 안전하게 접근
         string currentHandName = handNames[hand];
         float handMult = handMultipliers[hand];
-
         bool isGlitch = false;
 
         // 글리치 발동 조건 (트리플 이상)
@@ -63,7 +73,7 @@ public class DiceLogic : MonoBehaviour
             Debug.Log($"👾 [{currentHandName}] 같은 주사위 3개 이상! -> 글리치 발동!");
         }
 
-        // 아이템 체크
+        // 아이템 체크 리스트 가져오기
         List<Item> activeItems = (GameData.Instance != null) ? GameData.Instance.GetAllActiveUpgrades() : new List<Item>();
 
         if (hand == HandType.Straight)
@@ -73,20 +83,64 @@ public class DiceLogic : MonoBehaviour
                 currentHandName = "글리치 스트레이트";
                 isGlitch = true;
             }
-            if (activeItems.Exists(i => i.itemName == "Order Emblem"))
+
+            int orderCount = activeItems.Count(i => i.itemName == "Order Emblem");
+            if (orderCount > 0)
             {
-                handMult += 7.0f;
+                handMult += (7.0f * orderCount);
             }
         }
 
-        // ★ [추가됨] 상점에 있는 배율 증가 유물 로직 연동
-        if (activeItems.Exists(i => i.itemName == "Artifact Collector"))
+        int artColCount = activeItems.Count(i => i.itemName == "Artifact Collector");
+        if (artColCount > 0) handMult += (activeItems.Count * 0.5f * artColCount);
+
+        int diceColCount = activeItems.Count(i => i.itemName == "Dice Collector");
+        if (diceColCount > 0) handMult += (dice.Count * 0.2f * diceColCount);
+
+        int scaleCount = activeItems.Count(i => i.itemName == "Golden Scale");
+        if (scaleCount > 0)
         {
-            handMult += activeItems.Count * 0.5f; // 보유 유물 수만큼 배율 0.5씩 추가
+            int currentChips = GameData.Instance.chips;
+            if (currentChips >= 10)
+            {
+                float bonusMult = (currentChips / 10) * 0.5f * scaleCount;
+                handMult += bonusMult;
+            }
         }
-        if (activeItems.Exists(i => i.itemName == "Dice Collector"))
+
+        int shackleCount = activeItems.Count(i => i.itemName == "Heavy Shackle");
+        if (shackleCount > 0)
         {
-            handMult += dice.Count * 0.2f; // 사용 주사위 수만큼 배율 추가
+            handMult *= Mathf.Pow(2.0f, shackleCount);
+        }
+
+        // =======================================================
+        // ★ [보스 1] 변덕쟁이 심판: 홀/짝 통일성 판별 후 배율 조정
+        // =======================================================
+        if (GameData.Instance != null && GameData.Instance.isBossStage && GameData.Instance.currentBossName == "변덕쟁이 심판 (The Fickle)")
+        {
+            bool hasOdd = dice.Exists(d => d.finalScore % 2 != 0); // 홀수가 하나라도 있는지
+            bool hasEven = dice.Exists(d => d.finalScore % 2 == 0); // 짝수가 하나라도 있는지
+
+            if (hasOdd && !hasEven) // 모두 홀수!
+            {
+                handMult += 0.5f;
+                currentHandName += " (홀수 통일!)";
+                Debug.Log("⚖️ [변덕쟁이 심판] 모두 홀수! 배율 +0.5 보너스!");
+            }
+            else if (!hasOdd && hasEven) // 모두 짝수!
+            {
+                handMult += 0.5f;
+                currentHandName += " (짝수 통일!)";
+                Debug.Log("⚖️ [변덕쟁이 심판] 모두 짝수! 배율 +0.5 보너스!");
+            }
+            else // 섞여있음
+            {
+                handMult -= 0.5f;
+                if (handMult < 1.0f) handMult = 1.0f; // 배율이 1 이하로 내려가진 않게 방어
+                currentHandName += " (홀짝 섞임...)";
+                Debug.Log("⚖️ [변덕쟁이 심판] 홀짝이 섞임! 배율 -0.5 페널티!");
+            }
         }
 
         // 4. 점수 합산 로직
@@ -96,10 +150,11 @@ public class DiceLogic : MonoBehaviour
             sumOfDice += die.totalScoreCalculated;
         }
 
-        if (activeItems.Exists(i => i.itemName == "Skill Scanner"))
+        int scannerCount = activeItems.Count(i => i.itemName == "Skill Scanner");
+        if (scannerCount > 0)
         {
             int specialCount = dice.Count(d => d.diceType != "Normal");
-            if (specialCount > 0) sumOfDice += specialCount * 30;
+            if (specialCount > 0) sumOfDice += (specialCount * 30 * scannerCount);
         }
 
         return new HandResult { handName = currentHandName, multiplier = handMult, totalScore = (int)sumOfDice, isGlitch = isGlitch };
@@ -126,8 +181,6 @@ public class DiceLogic : MonoBehaviour
     private static bool CheckAndApplyArtifact(string itemName, List<DiceData> diceList)
     {
         bool triggered = false;
-
-        // ★ [수정됨] 점수가 뻥튀기된 totalScore가 아니라, 순수한 눈금의 합(finalScore)을 기준으로 21, 24를 검사합니다!
         long faceSum = diceList.Sum(d => d.finalScore);
 
         switch (itemName)
@@ -157,7 +210,6 @@ public class DiceLogic : MonoBehaviour
         Dictionary<int, int> counts = new Dictionary<int, int>();
         foreach (var d in dice)
         {
-            // ★ [수정됨] d.value(초기 눈금)가 아니라, 이펙트로 변한 눈금(finalScore)을 기준으로 족보를 판별합니다.
             int effectiveValue = d.finalScore;
             if (counts.ContainsKey(effectiveValue)) counts[effectiveValue]++;
             else counts[effectiveValue] = 1;
@@ -181,7 +233,6 @@ public class DiceLogic : MonoBehaviour
     {
         if (dice.Count < 5) return false;
 
-        // ★ [수정됨] 스트레이트 검사 시에도 변신한 눈금(finalScore)을 사용합니다.
         var values = dice.Select(d => d.finalScore).Distinct().OrderBy(v => v).ToList();
 
         int consecutive = 0;

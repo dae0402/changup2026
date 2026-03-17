@@ -34,7 +34,7 @@ public class GameData : MonoBehaviour
     }
 
     [Header("플레이어 자원")]
-    public int debt = 500;
+    public int debt = 100;
     public int wallet = 0;
     public int chips = 10;
     public int handsLeft = 3;
@@ -50,6 +50,15 @@ public class GameData : MonoBehaviour
     public int savedPot = 0;
     public bool isFirstRoll = true;
     public string currentHandName = "";
+
+    // ============================================
+    // ★ [추가] 스테이지 및 보스 상태 변수
+    // ============================================
+    [Header("스테이지 및 보스")]
+    public int currentStage = 1;
+    public bool isBossStage = false;
+    public string currentBossName = "";
+    public string currentBossDesc = "";
 
     [Header("★ 특수 효과 상태")]
     public HashSet<int> bonusTileIndices = new HashSet<int>();
@@ -130,7 +139,7 @@ public class GameData : MonoBehaviour
 
     public void ResetGame()
     {
-        debt = 500; wallet = 0; chips = 10;
+        debt = 100; wallet = 0; chips = 10;
         handsLeft = 3; maxHands = 3;
         rerollsLeft = 3; baseRerolls = 3;
         currentHandScore = 0; totalScore = 0;
@@ -148,6 +157,12 @@ public class GameData : MonoBehaviour
         // ★ 주머니 초기화
         ownedSpecialDice.Clear();
         currentDrawPile.Clear();
+
+        // ★ [추가됨] 재시작 시 1스테이지로 리셋 및 보스 정보 초기화
+        currentStage = 1;
+        isBossStage = false;
+        currentBossName = "";
+        currentBossDesc = "";
 
         isRolling = false; canSubmit = false; isProcessingTurn = false;
 
@@ -270,7 +285,8 @@ public class GameData : MonoBehaviour
         for (int i = 0; i < artifactRelics.Count; i++)
         {
             Item randomItem = shopDatabase[Random.Range(0, shopDatabase.Count)];
-            artifactRelics[i] = new Item(randomItem.itemName, randomItem.itemIcon, randomItem.description, randomItem.buyPrice, ItemType.Artifact);
+            // ★ [수정됨] 아이템의 티어(등급)도 함께 복사되도록 수정
+            artifactRelics[i] = new Item(randomItem.itemName, randomItem.itemIcon, randomItem.description, randomItem.buyPrice, ItemType.Artifact, randomItem.tier);
         }
     }
 
@@ -339,6 +355,10 @@ public class DiceData
     }
 }
 
+// ★ [신규 추가] 아이템 등급(Tier) 열거형
+public enum ItemTier { Normal, Rare, Epic, Legendary }
+public enum ItemType { Dice, Multiplier, Special, RandomBuff, Artifact, Consumable }
+
 [System.Serializable]
 public class Item
 {
@@ -349,13 +369,13 @@ public class Item
     public int cost => buyPrice;
     public int sellPrice;
     public ItemType type;
+    public ItemTier tier; // ★ [신규 추가] 아이템 등급 속성
     public bool isSold = false;
 
-    public Item(string name, string icon, string desc, int buy, ItemType itemType)
+    // ★ [수정됨] 생성자에서 등급(Tier)을 입력받을 수 있도록 변경 (기본값은 Normal)
+    public Item(string name, string icon, string desc, int buy, ItemType itemType, ItemTier itemTier = ItemTier.Normal)
     {
         itemName = name; itemIcon = icon; description = desc;
-        buyPrice = buy; sellPrice = buy / 2; type = itemType; isSold = false;
+        buyPrice = buy; sellPrice = buy / 2; type = itemType; tier = itemTier; isSold = false;
     }
 }
-
-public enum ItemType { Dice, Multiplier, Special, RandomBuff, Artifact, Consumable }

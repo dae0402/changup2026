@@ -40,7 +40,7 @@ public class UIManager : MonoBehaviour
     public TextMeshProUGUI savedPotText;
     public TextMeshProUGUI currentScoreText;
     public TextMeshProUGUI feverMultText;
-    public TextMeshProUGUI totalScoreText; // 노란색 큰 박스
+    public TextMeshProUGUI totalScoreText;
 
     [Header("버튼들")]
     public Button rollButton;
@@ -48,8 +48,10 @@ public class UIManager : MonoBehaviour
     public Button submitButton;
     public TextMeshProUGUI rerollButtonText;
 
-    [Header("인벤토리 슬롯들")]
-    public GameObject[] inventorySlots;
+    // ★ [기존 배열 삭제하고 새롭게 추가된 인벤토리 컨테이너] ★
+    [Header("★ 인벤토리 UI (보유 아이템 표시)")]
+    public Transform artifactContainer; // 유물(Artifact) 8칸이 들어갈 부모 오브젝트
+    public Transform diceContainer;     // 주사위(Dice) 5칸이 들어갈 부모 오브젝트
 
     [Header("화면들")]
     public GameObject titleScreen;
@@ -57,11 +59,11 @@ public class UIManager : MonoBehaviour
     public GameObject shopScreen;
     public GameObject rightPanel;
 
-    [Header("★ 주사위 슬롯 데이터")]
+    [Header("주사위 슬롯 데이터")]
     public List<DropSlot> allSlots = new List<DropSlot>();
 
-    private Color buffColor = new Color(1f, 1f, 0f, 0.7f); // 노란색 (Buff)
-    private Color nerfColor = new Color(1f, 0f, 0f, 0.7f); // 빨간색 (Nerf)
+    private Color buffColor = new Color(1f, 1f, 0f, 0.7f);
+    private Color nerfColor = new Color(1f, 0f, 0f, 0.7f);
 
     void Start()
     {
@@ -78,9 +80,8 @@ public class UIManager : MonoBehaviour
         UpdateStats();
         UpdateGamePanel();
         UpdateButtons();
-        UpdateInventory();
+        UpdateInventory(); // ★ 인벤토리 UI 갱신 함수 호출
         UpdateDiceUI();
-
         UpdateSlotColors();
     }
 
@@ -167,7 +168,6 @@ public class UIManager : MonoBehaviour
         if (shopChipsText != null) shopChipsText.text = GameData.Instance.chips.ToString();
     }
 
-    // ★ [핵심 수정됨] 점수 이중 곱셈 버그 해결 및 표시 로직 정상화
     public void UpdateGamePanel()
     {
         if (GameData.Instance == null) return;
@@ -176,16 +176,11 @@ public class UIManager : MonoBehaviour
 
         float mult = GameData.Instance.feverMultiplier > 0 ? GameData.Instance.feverMultiplier : 1f;
 
-        // 1. 배율 표시 (FeverMult)
         if (feverMultText) feverMultText.text = $"x {mult:F1}";
 
-        // 2. 기본 점수 표시 (Current) 
-        // -> 최종 점수에서 배율을 다시 나눠서 '곱해지기 전의 순수 주사위 합'을 보여줍니다.
         int rawScore = Mathf.RoundToInt(GameData.Instance.currentHandScore / mult);
         if (currentScoreText) currentScoreText.text = rawScore.ToString();
 
-        // 3. 노란색 큰 박스 (Total) 
-        // -> 배율을 또 곱하지 않고, 이미 계산이 완벽하게 끝난 최종 점수(currentHandScore)를 그대로 사용합니다!
         int estimatedWin = GameData.Instance.currentHandScore + GameData.Instance.savedPot;
         if (totalScoreText) totalScoreText.text = estimatedWin.ToString();
     }
@@ -193,39 +188,183 @@ public class UIManager : MonoBehaviour
     public void UpdateButtons()
     {
         if (GameData.Instance == null) return;
-        if (rollButton) rollButton.interactable = GameData.Instance.handsLeft > 0 && !GameData.Instance.isRolling;
+
+        // 바닥에 주사위가 깔려있는지(진행 중인 턴이 있는지) 확인
+        bool hasActiveDice = GameData.Instance.currentDice.Count > 0;
+
+        // 1. ROLL DICE 버튼: 주사위가 '없을 때만(새 턴)' 누를 수 있게 잠금!
+        if (rollButton)
+        {
+            rollButton.interactable = GameData.Instance.handsLeft > 0 &&
+                                      !GameData.Instance.isRolling &&
+                                      !hasActiveDice;
+        }
+
+        // 2. CHEAT 버튼: 주사위가 '있을 때만' 누를 수 있게 설정
         if (rerollButton)
         {
             rerollButton.interactable = GameData.Instance.rerollsLeft > 0 &&
-                                        GameData.Instance.currentDice.Count > 0 &&
+                                        hasActiveDice &&
                                         !GameData.Instance.isRolling;
         }
         if (rerollButtonText) rerollButtonText.text = $"CHEAT [{GameData.Instance.rerollsLeft}]";
-        if (submitButton) submitButton.interactable = GameData.Instance.canSubmit && !GameData.Instance.isRolling;
-    }
 
-    public void UpdateInventory()
-    {
-        if (GameData.Instance == null || inventorySlots == null) return;
-        for (int i = 0; i < inventorySlots.Length; i++)
+        // 3. CASH OUT 버튼: 제출 가능한 상태일 때 활성화
+        if (submitButton)
         {
-            if (inventorySlots[i] == null) continue;
-            TextMeshProUGUI slotText = inventorySlots[i].GetComponentInChildren<TextMeshProUGUI>();
-            if (i < GameData.Instance.inventory.Count)
-            {
-                Item item = GameData.Instance.inventory[i];
-                if (slotText) slotText.text = item.itemIcon;
-                int index = i;
-                Button slotButton = inventorySlots[i].GetComponent<Button>();
-                if (slotButton != null)
-                {
-                    slotButton.onClick.RemoveAllListeners();
-                    slotButton.onClick.AddListener(() => OnInventorySlotClicked(index));
-                }
-            }
-            else if (slotText) slotText.text = "";
+            submitButton.interactable = GameData.Instance.canSubmit && !GameData.Instance.isRolling;
         }
     }
+
+    // =========================================================
+    // ★ [새로 추가됨] 인벤토리 시각화 및 판매 로직
+    // =========================================================
+    public void UpdateInventory()
+    {
+        if (GameData.Instance == null) return;
+
+        // 1. 유물(Artifact) UI 업데이트
+        if (artifactContainer != null)
+        {
+            foreach (Transform child in artifactContainer) Destroy(child.gameObject);
+
+            for (int i = 0; i < GameData.Instance.artifactRelics.Count; i++)
+            {
+                Item item = GameData.Instance.artifactRelics[i];
+                int index = i;
+
+                GameObject slotObj = CreateInventorySlotUI(item.itemName, item.sellPrice, artifactContainer);
+
+                // ★ 슬롯 전체가 아니라, 우측 상단의 'SellBadge' 버튼에만 판매 기능 연결!
+                Button sellBtn = slotObj.transform.Find("SellBadge").GetComponent<Button>();
+                sellBtn.onClick.AddListener(() => SellArtifact(index, item));
+            }
+        }
+
+        // 2. 특수 주사위(Dice) UI 업데이트
+        if (diceContainer != null)
+        {
+            foreach (Transform child in diceContainer) Destroy(child.gameObject);
+
+            for (int i = 0; i < GameData.Instance.ownedSpecialDice.Count; i++)
+            {
+                string diceName = GameData.Instance.ownedSpecialDice[i];
+                int index = i;
+                int diceSellPrice = 5;
+
+                GameObject slotObj = CreateInventorySlotUI(diceName, diceSellPrice, diceContainer);
+
+                Button sellBtn = slotObj.transform.Find("SellBadge").GetComponent<Button>();
+                sellBtn.onClick.AddListener(() => SellDice(index, diceSellPrice, diceName));
+            }
+        }
+    }
+
+    // ★ [핵심] 기획하신 이미지처럼 우측 상단에 빨간색 '-' 버튼을 달아주는 함수
+    // ★ [수정됨] 글자가 안 겹치도록 깔끔한 세로형 '카드' 디자인으로 변경
+    GameObject CreateInventorySlotUI(string nameText, int sellPrice, Transform parent)
+    {
+        // 1. 카드 배경
+        GameObject slotObj = new GameObject($"InvSlot_{nameText}");
+        slotObj.transform.SetParent(parent, false);
+
+        Image bg = slotObj.AddComponent<Image>();
+        bg.color = new Color(0.15f, 0.15f, 0.15f, 1f); // 고급스러운 다크 그레이
+
+        Outline outline = slotObj.AddComponent<Outline>();
+        outline.effectColor = new Color(0.5f, 0.5f, 0.5f, 1f); // 밝은 테두리
+        outline.effectDistance = new Vector2(2, -2);
+
+        // 2. 아이템 이름 텍스트 (자동 크기 조절 기능 켬)
+        GameObject nameObj = new GameObject("NameText");
+        nameObj.transform.SetParent(slotObj.transform, false);
+        TextMeshProUGUI nameTxt = nameObj.AddComponent<TextMeshProUGUI>();
+        nameTxt.text = nameText;
+        nameTxt.fontStyle = FontStyles.Bold;
+        nameTxt.alignment = TextAlignmentOptions.Center;
+        nameTxt.color = Color.white;
+
+        // ★ 글자가 길면 알아서 작아지도록 AutoSizing 켜기
+        nameTxt.enableAutoSizing = true;
+        nameTxt.fontSizeMin = 12;
+        nameTxt.fontSizeMax = 22;
+
+        RectTransform nameRt = nameTxt.GetComponent<RectTransform>();
+        nameRt.anchorMin = new Vector2(0, 0.35f);
+        nameRt.anchorMax = new Vector2(1, 0.85f);
+        nameRt.offsetMin = new Vector2(5, 0); // 좌우 여백 5px
+        nameRt.offsetMax = new Vector2(-5, 0);
+
+        // 3. 우측 상단 판매(-) 버튼
+        GameObject badgeObj = new GameObject("SellBadge");
+        badgeObj.transform.SetParent(slotObj.transform, false);
+
+        Image badgeBg = badgeObj.AddComponent<Image>();
+        badgeBg.color = new Color(0.9f, 0.2f, 0.2f, 1f);
+        Button badgeBtn = badgeObj.AddComponent<Button>();
+
+        RectTransform badgeRt = badgeObj.GetComponent<RectTransform>();
+        badgeRt.sizeDelta = new Vector2(30, 30);
+        badgeRt.anchorMin = new Vector2(1, 1);
+        badgeRt.anchorMax = new Vector2(1, 1);
+        badgeRt.pivot = new Vector2(1, 1);
+        badgeRt.anchoredPosition = new Vector2(10, 10);
+
+        // 4. 마이너스(-) 기호 텍스트
+        GameObject minusObj = new GameObject("MinusText");
+        minusObj.transform.SetParent(badgeObj.transform, false);
+        TextMeshProUGUI minusTxt = minusObj.AddComponent<TextMeshProUGUI>();
+        minusTxt.text = "-";
+        minusTxt.fontSize = 28;
+        minusTxt.alignment = TextAlignmentOptions.Center;
+        minusTxt.color = Color.white;
+        minusTxt.fontStyle = FontStyles.Bold;
+
+        RectTransform minusRt = minusTxt.GetComponent<RectTransform>();
+        minusRt.anchorMin = Vector2.zero;
+        minusRt.anchorMax = Vector2.one;
+        minusRt.offsetMin = Vector2.zero;
+        minusRt.offsetMax = new Vector2(0, 2);
+
+        // 5. 판매 가격 표시
+        GameObject priceObj = new GameObject("PriceText");
+        priceObj.transform.SetParent(slotObj.transform, false);
+        TextMeshProUGUI priceTxt = priceObj.AddComponent<TextMeshProUGUI>();
+        priceTxt.text = $"팔기 +{sellPrice}C";
+        priceTxt.fontSize = 14;
+        priceTxt.alignment = TextAlignmentOptions.Center;
+        priceTxt.color = new Color(1f, 0.8f, 0.2f, 1f);
+        priceTxt.fontStyle = FontStyles.Bold;
+
+        RectTransform priceRt = priceTxt.GetComponent<RectTransform>();
+        priceRt.anchorMin = new Vector2(0, 0);
+        priceRt.anchorMax = new Vector2(1, 0.3f);
+        priceRt.offsetMin = Vector2.zero;
+        priceRt.offsetMax = Vector2.zero;
+
+        return slotObj;
+    }
+
+    void SellArtifact(int index, Item item)
+    {
+        GameData.Instance.AddChips(item.sellPrice);
+
+        // 아이템 효과 롤백 (예: 오버로드 기어 팔면 최대 목숨 다시 복구)
+        if (item.itemName == "Overload Gear") GameData.Instance.maxHands++;
+
+        GameData.Instance.artifactRelics.RemoveAt(index);
+        Debug.Log($"🎒 유물 판매 완료: {item.itemName} (+{item.sellPrice}칩)");
+        UpdateAllUI();
+    }
+
+    void SellDice(int index, int sellPrice, string diceName)
+    {
+        GameData.Instance.AddChips(sellPrice);
+        GameData.Instance.ownedSpecialDice.RemoveAt(index);
+        Debug.Log($"🎲 주사위 판매 완료: {diceName} (+{sellPrice}칩)");
+        UpdateAllUI();
+    }
+    // =========================================================
 
     public void DisplayHandResult(string handName, float multiplier)
     {
@@ -284,15 +423,6 @@ public class UIManager : MonoBehaviour
     void OnRollButtonClicked() { if (GameManager.Instance != null) GameManager.Instance.RollDice(); }
     void OnRerollButtonClicked() { if (GameManager.Instance != null) GameManager.Instance.RerollSelectedDice(); }
     void OnSubmitButtonClicked() { if (GameManager.Instance != null) GameManager.Instance.SubmitHand(); }
-
-    void OnInventorySlotClicked(int index)
-    {
-        if (GameData.Instance == null || index >= GameData.Instance.inventory.Count) return;
-        Item item = GameData.Instance.inventory[index];
-        GameData.Instance.AddChips(item.sellPrice);
-        GameData.Instance.RemoveItemFromInventory(index);
-        UpdateAllUI();
-    }
 
     public void ShowHandCompletedEffect(string handName) => Debug.Log($"🎰 {handName} 완성!");
     public void ShowMessage(string message) => Debug.Log($"💬 {message}");

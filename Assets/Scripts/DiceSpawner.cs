@@ -27,6 +27,8 @@ public class DiceSpawner : MonoBehaviour
     public Color buffColor = Color.yellow;
     public Color nerfColor = Color.red;
     public Color selectionColor = Color.cyan;
+    // ★ [추가] 득점 연출용 강조 색상 (황금색)
+    public Color highlightColor = new Color(1f, 0.84f, 0f, 1f);
 
     [Header("효과 텍스트 설정")]
     public Vector2 effectTextOffset = new Vector2(0f, 60f);
@@ -82,7 +84,6 @@ public class DiceSpawner : MonoBehaviour
 
         Transform slotTransform = slots[slotIndex].transform;
 
-        // ★ 유령 오브젝트 방지: 삭제할 때 확실히 부모 관계를 끊어버립니다.
         if (slotTransform.childCount > 0)
         {
             for (int i = slotTransform.childCount - 1; i >= 0; i--)
@@ -135,7 +136,6 @@ public class DiceSpawner : MonoBehaviour
         {
             Transform slotTransform = slots[slotIndex].transform;
 
-            // ★ 유령 오브젝트 방지
             for (int i = slotTransform.childCount - 1; i >= 0; i--)
             {
                 Transform child = slotTransform.GetChild(i);
@@ -186,15 +186,40 @@ public class DiceSpawner : MonoBehaviour
         }
     }
 
+    // =====================================================================
+    // ★ [핵심 추가] 한글 폰트를 자동으로 찾아오는 헬퍼 함수!
+    // =====================================================================
+    private TMP_FontAsset GetKoreanFont()
+    {
+        foreach (var t in FindObjectsOfType<TextMeshProUGUI>())
+        {
+            if (t.font != null && t.font.name != "LiberationSans SDF" && t.gameObject.name != "EffectPopupText")
+            {
+                return t.font;
+            }
+        }
+        return null;
+    }
+
+    // =====================================================================
+    // ★ [버그 픽스] 업데이트 뷰: 폰트 적용 & 진짜 이미지 찾기
+    // =====================================================================
     public void UpdateDiceVisual(GameObject dice, DiceData data)
     {
-        // ★ 최후의 안전장치: dice가 유령 오브젝트인지 한 번 더 확인합니다.
         if (dice == null || data == null) return;
 
-        Outline outline = dice.GetComponent<Outline>();
-        if (outline == null) outline = dice.AddComponent<Outline>();
+        // 진짜 이미지 찾기
+        Image targetImg = null;
+        foreach (var img in dice.GetComponentsInChildren<Image>())
+        {
+            if (img.color.a > 0.1f) { targetImg = img; break; }
+        }
+        GameObject targetObj = targetImg != null ? targetImg.gameObject : dice;
 
-        outline.effectDistance = new Vector2(4, -4);
+        Outline outline = targetObj.GetComponent<Outline>();
+        if (outline == null) outline = targetObj.AddComponent<Outline>();
+
+        outline.effectDistance = new Vector2(4, -4); // 기본 두께 복구
 
         if (data.isSelected)
         {
@@ -231,9 +256,22 @@ public class DiceSpawner : MonoBehaviour
 
                 popupText = newPopupObj.AddComponent<TextMeshProUGUI>();
 
+                // ★ [폰트 깨짐 픽스] 한글 폰트 적용!
+                TMP_FontAsset kFont = GetKoreanFont();
+                if (kFont != null) popupText.font = kFont;
+
                 popupText.alignment = TextAlignmentOptions.Center;
-                popupText.fontSize = 30f;
+                popupText.fontSize = 28f; // 글자가 상자를 벗어나지 않게 조정
                 popupText.fontStyle = FontStyles.Bold;
+
+                // ★ 줄바꿈 방지 설정
+                popupText.enableWordWrapping = false;
+                popupText.overflowMode = TextOverflowModes.Overflow;
+
+                // ★ 가독성을 위한 검은 테두리 추가
+                Outline txtOutline = newPopupObj.AddComponent<Outline>();
+                txtOutline.effectColor = Color.black;
+                txtOutline.effectDistance = new Vector2(2, -2);
 
                 RectTransform rt = popupText.GetComponent<RectTransform>();
                 rt.anchorMin = new Vector2(0.5f, 0.5f);
@@ -246,7 +284,6 @@ public class DiceSpawner : MonoBehaviour
                 popupText = popupTransform.GetComponent<TextMeshProUGUI>();
             }
 
-            // 팝업 트랜스폼이 유효한지 확인 후 적용
             if (popupTransform != null && popupText != null)
             {
                 popupText.text = data.effectPopupText;
@@ -262,20 +299,19 @@ public class DiceSpawner : MonoBehaviour
             }
         }
 
-        Image backgroundImage = dice.GetComponent<Image>();
-        if (backgroundImage != null)
+        if (targetImg != null)
         {
             if (data.diceType == "Buff Dice" || data.diceType == "Time Dice" || data.diceType == "Ancient Dice" || data.diceType == "Comeback Dice" || data.diceType == "Spring Dice" || data.diceType == "Splash Dice")
             {
-                backgroundImage.color = buffSourceBgColor;
+                targetImg.color = buffSourceBgColor;
             }
             else if (data.diceType == "Absorb Dice" || data.diceType == "Ice Dice")
             {
-                backgroundImage.color = nerfSourceBgColor;
+                targetImg.color = nerfSourceBgColor;
             }
             else
             {
-                backgroundImage.color = normalBgColor;
+                targetImg.color = normalBgColor;
             }
         }
     }
@@ -295,8 +331,6 @@ public class DiceSpawner : MonoBehaviour
             if (slotTransform.childCount > 0)
             {
                 Transform child = slotTransform.GetChild(slotTransform.childCount - 1);
-
-                // ★ 문제 해결의 핵심! child가 유령 상태가 아닌지(null이 아닌지) 검사합니다.
                 if (child != null)
                 {
                     UpdateDiceVisual(child.gameObject, data);
@@ -312,6 +346,62 @@ public class DiceSpawner : MonoBehaviour
         if (data != null)
         {
             UpdateDiceVisual(slotIndex, data);
+        }
+    }
+
+    public void HighlightDice(int slotIndex, bool isHighlight)
+    {
+        if (slots == null || slotIndex < 0 || slotIndex >= slots.Length) return;
+
+        DropSlot ds = slots[slotIndex].GetComponent<DropSlot>();
+        GameObject diceObj = null;
+
+        if (ds != null && ds.diceObject != null)
+        {
+            diceObj = ds.diceObject;
+        }
+        else
+        {
+            Transform slotTransform = slots[slotIndex].transform;
+            if (slotTransform.childCount > 0)
+            {
+                diceObj = slotTransform.GetChild(slotTransform.childCount - 1).gameObject;
+            }
+        }
+
+        if (diceObj == null) return;
+
+        Image targetImg = null;
+        foreach (var img in diceObj.GetComponentsInChildren<Image>())
+        {
+            if (img.color.a > 0.1f) { targetImg = img; break; }
+        }
+        GameObject targetObj = targetImg != null ? targetImg.gameObject : diceObj;
+
+        Outline outline = targetObj.GetComponent<Outline>();
+        if (outline == null) outline = targetObj.AddComponent<Outline>();
+
+        if (isHighlight)
+        {
+            outline.enabled = true;
+            outline.effectColor = highlightColor;
+            outline.effectDistance = new Vector2(8, -8);
+
+            targetObj.transform.localScale = new Vector3(1.15f, 1.15f, 1f);
+            targetObj.transform.SetAsLastSibling();
+        }
+        else
+        {
+            targetObj.transform.localScale = Vector3.one;
+
+            if (GameData.Instance != null)
+            {
+                var data = GameData.Instance.currentDice.Find(d => d.slotIndex == slotIndex);
+                if (data != null)
+                {
+                    UpdateDiceVisual(diceObj, data);
+                }
+            }
         }
     }
 
